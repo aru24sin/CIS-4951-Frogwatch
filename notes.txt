@@ -1,0 +1,37 @@
+He wants expert volunteers to be able to access it
+
+He wants it to be more of a tool for expert opinions on different frog sightings
+
+Wants a research paper
+
+It will be on the FOR website for them to be able to access
+
+Preferred android, maybe apple?
+
+Do it on a central server on campus for the AI computation (SSH into campus resources for training)
+
+More user perception on federated learning to see what users think about federated learning on technical
+and social aspects (explore in the research)
+    - Wants to know why it isn't used in the field
+
+Overall goal: train, report, and collect data
+
+LACK OF DATA FOR FROG AUDIO
+    - Sound ID is common but has not been touched on in this field
+    - Adapt other audio sound ID libraries
+
+Biggest challenges:
+    - User perception
+    - Lack of data
+    - Publishing the app
+
+Use cases:
+    - Users collect data and label the data
+
+Edge case:
+    - Users inputting the wrong data
+
+Users will run the model on their phone (AI computation happens on the phone)
+
+A really open project with a lot of details that can be changed ***
+
