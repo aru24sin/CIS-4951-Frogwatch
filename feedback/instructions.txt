@@ -1,0 +1,2 @@
+This folder is for the feedback/edited predictions that the volunteers will be making.
+It will contain the logic for sending new data/raw data to the model.
