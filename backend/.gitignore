@@ -1,0 +1,9 @@
+# Ignore environment config and secrets
+.env
+
+# Ignore compiled Python files
+__pycache__/
+*.pyc
+
+# macOS system files
+.DS_Store
