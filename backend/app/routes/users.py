@@ -1,6 +1,6 @@
 import bcrypt
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, validator, Field
+from pydantic import BaseModel, validator, Field, EmailStr
 from backend.firebase import db  # already configured
 from typing import List
 
@@ -10,6 +10,7 @@ router = APIRouter()
 class User(BaseModel):
     userId: str
     username: str
+    email: EmailStr
     password: str  # Store hashed password
     firstName: str
     lastName: str
@@ -67,7 +68,7 @@ def forgot_password_verify(data: ForgotPasswordVerify):
     doc_ref.update({ "password": new_hashed_pw })
 
     return { "message": "Password reset successfully" }
-
+#initate forgot password process
 @router.post("/forgot-password/initiate")
 def forgot_password_initiate(request: ForgotPasswordRequest):
     users_ref = db.collection("users")
@@ -103,6 +104,7 @@ def create_user(user: User):
     user_data = user.dict()
     user_data["password"] = hashed_pw
     user_data["securityAnswers"] = hashed_answers  # Replace plain answers with hashed ones
+    del user_data["securityQuestions"]  # optional: don't store plain text answers
 
     # Save to Firestore
     doc_ref.set(user_data)
