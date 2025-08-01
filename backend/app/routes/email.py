@@ -1,15 +1,15 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 from fastapi_mail import FastMail, MessageSchema
 from backend.app.email_config import conf
 
 router = APIRouter()
 
 @router.post("/send-email/")
-async def send_email(to_email: str):
+async def send_email(to_email: str = Query(...)):
     message = MessageSchema(
-        subject="FrogWatch+ Notification",
+        subject="Welcome to FrogWatch+",
         recipients=[to_email],
-        body="This is a test email from your FastAPI app.",
+        body="Thank you for registering with FrogWatch+!",
         subtype="plain"
     )
 
