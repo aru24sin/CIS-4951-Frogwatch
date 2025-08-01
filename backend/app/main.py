@@ -15,3 +15,4 @@ app.include_router(email.router)
 @app.get("/")
 def read_root():
     return {"message": "FrogWatch Backend is running!"}
+ 
