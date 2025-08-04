@@ -2,21 +2,44 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional
 from backend.firebase import db
+from datetime import datetime
+from firebase_admin import firestore
 
 router = APIRouter()
 
 class Approval(BaseModel):
     approvalId: str
+    expertId: str
+    recordingId: str
+    approved: bool
+    confidenceScore: float
+    trustedLabel: str
     comments: Optional[str] = ""
-    decision: Optional[str] = ""
-    expertId: Optional[str] = ""
-    recordingId: Optional[str] = ""
-    timestamp: Optional[str] = ""
+    timestamp: Optional[str] = None
 
 @router.post("/approvals")
 def create_approval(approval: Approval):
-    db.collection("approvals").document(approval.approvalId).set(approval.dict())
-    return {"message": "Approval created successfully"}
+    # Prepare data
+    approval_data = approval.dict()
+    approval_data["timestamp"] = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+
+    # 1. Save to approvals collection
+    db.collection("approvals").document(approval.approvalId).set(approval_data)
+
+    # 2. Update recording status to "approved"
+    rec_ref = db.collection("recordings").document(approval.recordingId)
+    if rec_ref.get().exists:
+        rec_ref.update({"status": "approved"})
+
+    # 3. Update expert profile
+    expert_ref = db.collection("users").document(approval.expertId)
+    if expert_ref.get().exists:
+        expert_ref.update({
+            "approvedRecordings": firestore.ArrayUnion([approval.recordingId]),
+            f"confidenceScores.{approval.recordingId}": approval.confidenceScore
+        })
+
+    return {"message": "Approval created and synced successfully"}
 
 @router.get("/approvals")
 def get_approvals():
