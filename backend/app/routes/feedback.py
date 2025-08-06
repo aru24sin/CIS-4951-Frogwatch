@@ -1,14 +1,15 @@
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 from backend.firebase import db
+from datetime import datetime
 
 router = APIRouter()
 
 class Feedback(BaseModel):
     feedbackId: str
     message: Optional[str] = ""
-    rating: Optional[int] = 0
+    rating: Optional[int] = Field(default=0, ge=0, le=5)
     recordingId: Optional[str] = ""
     response: Optional[str] = ""
     timestamp: Optional[str] = ""
@@ -16,7 +17,10 @@ class Feedback(BaseModel):
 
 @router.post("/feedback")
 def create_feedback(feedback: Feedback):
-    db.collection("feedback").document(feedback.feedbackId).set(feedback.dict())
+    data = feedback.dict()
+    if not data.get("timestamp"):
+        data["timestamp"] = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+    db.collection("feedback").document(feedback.feedbackId).set(data)
     return {"message": "Feedback created successfully"}
 
 @router.get("/feedback")
