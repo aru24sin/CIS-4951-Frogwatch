@@ -1,20 +1,22 @@
 import bcrypt
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, validator, Field, EmailStr
-from backend.firebase import db  # already configured
 from typing import List
 
-router = APIRouter()
+from backend.firebase import db  # Firestore client (already configured)
+from firebase_admin import auth  # Admin SDK to update password
+from backend.app.routes.auth import get_current_user  # token verifier (returns decoded JWT)
 
-# Define the user model
-class User(BaseModel):
-    userId: str
+router = APIRouter(prefix="/users", tags=["users"])
+
+# --- Models ---
+class UserProfile(BaseModel):
+    userId: str            # Firebase UID
     username: str
     email: EmailStr
-    password: str  # Store hashed password
     firstName: str
     lastName: str
-    role: str  # "user", "expert", or "admin"
+    role: str              # volunteer | expert | admin
     securityQuestions: List[str] = Field(
         example=[
             "What was the name of your first pet?",
@@ -23,11 +25,7 @@ class User(BaseModel):
         ]
     )
     securityAnswers: List[str] = Field(
-        example=[
-            "Buddy",
-            "Cairo",
-            "Bullfrog"
-        ]
+        example=["Buddy", "Cairo", "Bullfrog"]
     )
 
     @validator("role")
@@ -36,44 +34,73 @@ class User(BaseModel):
         if v not in allowed:
             raise ValueError(f"Role must be one of: {', '.join(allowed)}")
         return v
-class ForgotPasswordVerify(BaseModel):
-    userId: str
-    answers: list[str]
-    newPassword: str
+
 
 class ForgotPasswordRequest(BaseModel):
     username: str
-    
-@router.post("/forgot-password/verify")
-def forgot_password_verify(data: ForgotPasswordVerify):
-    doc_ref = db.collection("users").document(data.userId)
-    user_doc = doc_ref.get()
 
-    if not user_doc.exists:
+
+class ForgotPasswordVerify(BaseModel):
+    userId: str
+    answers: List[str]   # exactly 3
+    newPassword: str
+
+
+class UpdateSecurityQA(BaseModel):
+    userId: str
+    securityQuestions: List[str]   # 3 questions (plain text)
+    securityAnswers: List[str]     # 3 new answers (plain text to be hashed)
+
+
+# --- Routes ---
+
+# Create/Update user profile (NO password stored in Firestore)
+@router.post("")
+def create_or_update_user(profile: UserProfile, user=Depends(get_current_user)):
+    # Only allow the authenticated user to modify their own profile
+    if user["uid"] != profile.userId:
+        raise HTTPException(status_code=403, detail="Not your profile")
+
+    if len(profile.securityQuestions) != 3 or len(profile.securityAnswers) != 3:
+        raise HTTPException(status_code=400, detail="Exactly 3 security questions and 3 answers are required")
+
+    doc_ref = db.collection("users").document(profile.userId)
+
+    # Hash each security answer before storing
+    hashed_answers = [
+        bcrypt.hashpw(ans.encode(), bcrypt.gensalt()).decode()
+        for ans in profile.securityAnswers
+    ]
+
+    user_data = profile.dict()
+    user_data["securityAnswers"] = hashed_answers
+    user_data.pop("password", None)  # ensure no password field ever sneaks in
+
+    # Keep securityQuestions so you can display them during reset
+    doc_ref.set(user_data, merge=True)
+    return {"message": "User profile saved"}
+
+
+# Get user profile (never return password—even if it somehow exists)
+@router.get("/{user_id}")
+def get_user(user_id: str, user=Depends(get_current_user)):
+    # Allow owner to read; adjust if admins should read others
+    if user["uid"] != user_id:
+        raise HTTPException(status_code=403, detail="Not your profile")
+
+    doc = db.collection("users").document(user_id).get()
+    if not doc.exists:
         raise HTTPException(status_code=404, detail="User not found")
+    user_data = doc.to_dict()
+    user_data.pop("password", None)
+    return user_data
 
-    user_data = user_doc.to_dict()
-    stored_hashed_answers = user_data.get("securityAnswers", [])
 
-    if len(stored_hashed_answers) != 3 or len(data.answers) != 3:
-        raise HTTPException(status_code=400, detail="Invalid answer format")
-
-    # Check each answer with bcrypt
-    for input_ans, stored_hash in zip(data.answers, stored_hashed_answers):
-        if not bcrypt.checkpw(input_ans.encode(), stored_hash.encode()):
-            raise HTTPException(status_code=401, detail="Security answers incorrect")
-
-    # Hash new password and update
-    new_hashed_pw = bcrypt.hashpw(data.newPassword.encode(), bcrypt.gensalt()).decode()
-    doc_ref.update({ "password": new_hashed_pw })
-
-    return { "message": "Password reset successfully" }
-#initate forgot password process
+# Step 1 of forgot password: get the questions by username (public)
 @router.post("/forgot-password/initiate")
 def forgot_password_initiate(request: ForgotPasswordRequest):
     users_ref = db.collection("users")
     query = users_ref.where("username", "==", request.username).limit(1).stream()
-
     user_doc = next(query, None)
     if not user_doc:
         raise HTTPException(status_code=404, detail="User not found")
@@ -85,61 +112,54 @@ def forgot_password_initiate(request: ForgotPasswordRequest):
     }
 
 
-# POST: Add new user (Register)
-@router.post("/users")
-def create_user(user: User):
-    doc_ref = db.collection("users").document(user.userId)
-
-    # Check if user already exists
-    if doc_ref.get().exists:
-        raise HTTPException(status_code=400, detail="User already exists")
-
-    # Hash the password
-    hashed_pw = bcrypt.hashpw(user.password.encode(), bcrypt.gensalt()).decode()
-
-    # Hash each security answer
-    hashed_answers = [bcrypt.hashpw(ans.encode(), bcrypt.gensalt()).decode() for ans in user.securityAnswers]
-
-    # Prepare user data
-    user_data = user.dict()
-    user_data["password"] = hashed_pw
-    user_data["securityAnswers"] = hashed_answers  # Replace plain answers with hashed ones
-    del user_data["securityQuestions"]  # optional: don't store plain text answers
-
-    # Save to Firestore
-    doc_ref.set(user_data)
-
-    return {"message": "User created successfully"}
-
-
-# GET: Retrieve user
-@router.get("/users/{user_id}")
-def get_user(user_id: str):
-    doc = db.collection("users").document(user_id).get()
-    if doc.exists:
-        user_data = doc.to_dict()
-        user_data.pop("password", None)  # Hide password
-        return user_data
-    raise HTTPException(status_code=404, detail="User not found")
-
-class LoginUser(BaseModel):
-    username: str
-    password: str
-
-@router.post("/login")
-def login_user(login: LoginUser):
-    users_ref = db.collection("users")
-    query = users_ref.where("username", "==", login.username).limit(1).stream()
-
-    user_doc = next(query, None)
-    if not user_doc:
-        raise HTTPException(status_code=401, detail="Invalid username or password")
+# Step 2: verify answers, then update password in Firebase Auth (public)
+@router.post("/forgot-password/verify")
+def forgot_password_verify(data: ForgotPasswordVerify):
+    doc_ref = db.collection("users").document(data.userId)
+    user_doc = doc_ref.get()
+    if not user_doc.exists:
+        raise HTTPException(status_code=404, detail="User not found")
 
     user_data = user_doc.to_dict()
-    stored_hash = user_data.get("password")
+    stored_hashed_answers = user_data.get("securityAnswers", [])
 
-    if not stored_hash or not bcrypt.checkpw(login.password.encode(), stored_hash.encode()):
-        raise HTTPException(status_code=401, detail="Invalid username or password")
+    if len(stored_hashed_answers) != 3 or len(data.answers) != 3:
+        raise HTTPException(status_code=400, detail="Invalid answer format")
 
-    user_data.pop("password", None)  # Don't send password back
-    return {"message": "Login successful", "user": user_data}
+    for input_ans, stored_hash in zip(data.answers, stored_hashed_answers):
+        if not bcrypt.checkpw(input_ans.encode(), stored_hash.encode()):
+            raise HTTPException(status_code=401, detail="Security answers incorrect")
+
+    # Update the password in Firebase Auth (Firebase salts+hashes internally)
+    try:
+        auth.update_user(data.userId, password=data.newPassword)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update password: {e}")
+
+    return {"message": "Password reset successfully"}
+
+
+# Update security questions/answers (owner-only)
+@router.post("/security-qa")
+def update_security_qa(payload: UpdateSecurityQA, user=Depends(get_current_user)):
+    if user["uid"] != payload.userId:
+        raise HTTPException(status_code=403, detail="Not your profile")
+
+    if len(payload.securityQuestions) != 3 or len(payload.securityAnswers) != 3:
+        raise HTTPException(status_code=400, detail="Exactly 3 questions and 3 answers are required")
+
+    ref = db.collection("users").document(payload.userId)
+    if not ref.get().exists:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    hashed_answers = [
+        bcrypt.hashpw(ans.encode(), bcrypt.gensalt()).decode()
+        for ans in payload.securityAnswers
+    ]
+
+    ref.set({
+        "securityQuestions": payload.securityQuestions,  # keep questions
+        "securityAnswers": hashed_answers                # store hashed answers
+    }, merge=True)
+
+    return {"message": "Security questions and answers updated"}

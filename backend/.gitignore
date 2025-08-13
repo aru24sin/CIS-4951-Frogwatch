@@ -9,3 +9,7 @@ __pycache__/
 .DS_Store
 
 ../uploaded_audios/
+
+# Ignore Firebase key and uploaded files
+backend/serviceAccountKey.json
+uploaded_audios/
