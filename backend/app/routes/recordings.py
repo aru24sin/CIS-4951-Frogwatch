@@ -114,3 +114,13 @@ async def get_recordings_by_user(user_id: str, user: CurrentUser = Depends(get_c
     if not results:
         raise HTTPException(status_code=404, detail="No recordings found for this user")
     return results
+
+# Endpoint: convenience shortcut for the current user
+@router.get("/my")
+async def my_recordings(user: CurrentUser = Depends(get_current_user)):
+    """
+    Return only the recordings uploaded by the currently logged-in user.
+    Same as /recordings but doesn't require userId/client-side filtering.
+    """
+    q = firebase.db.collection("recordings").where("userId", "==", user["uid"]).stream()
+    return [doc.to_dict() for doc in q]

@@ -1,27 +1,32 @@
 # backend/app/main.py
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
+from fastapi.security import HTTPBearer
 from dotenv import load_dotenv
 
 # Load env first
 load_dotenv()
 
-# backend/firebase.py initializes firebase_admin
-import backend.firebase  # side-effect init 
+# initializes firebase_admin
+import backend.firebase
 
-# Routers   
+# Routers
 from backend.app.routes import audio, users, recordings, approvals, feedback, email, auth
 
+# 👇 This makes Swagger show lock icon + handle Authorization header automatically
+security = HTTPBearer()
 
 app = FastAPI(title="FrogWatch Backend")
 
-# Mount each router exactly once
-app.include_router(audio.router)
-app.include_router(users.router)
-app.include_router(recordings.router)
-app.include_router(approvals.router)
-app.include_router(feedback.router)
-app.include_router(email.router)
+# Public/unprotected routes (auth only)
 app.include_router(auth.router)
+
+# Protected routes: user must come with a Bearer token
+app.include_router(audio.router, dependencies=[Depends(security)])
+app.include_router(users.router, dependencies=[Depends(security)])
+app.include_router(recordings.router, dependencies=[Depends(security)])
+app.include_router(approvals.router, dependencies=[Depends(security)])
+app.include_router(feedback.router, dependencies=[Depends(security)])
+app.include_router(email.router, dependencies=[Depends(security)])
 
 @app.get("/")
 def read_root():

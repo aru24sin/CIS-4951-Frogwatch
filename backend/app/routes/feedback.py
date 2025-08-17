@@ -1,45 +1,91 @@
-from fastapi import APIRouter, HTTPException
+# backend/app/routes/feedback.py
+
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
-from typing import Optional
-from backend.firebase import db
-from datetime import datetime
+from typing import Optional, Dict, List
+from firebase_admin import firestore
 
-router = APIRouter()
+from .auth import get_current_user
 
-class Feedback(BaseModel):
-    feedbackId: str
-    message: Optional[str] = ""
-    rating: Optional[int] = Field(default=0, ge=0, le=5)
-    recordingId: Optional[str] = ""
-    response: Optional[str] = ""
-    timestamp: Optional[str] = ""
-    userId: Optional[str] = ""
+router = APIRouter(prefix="/feedback", tags=["Feedback"])
+db = firestore.client()
 
-@router.post("/feedback")
-def create_feedback(feedback: Feedback):
-    data = feedback.dict()
-    if not data.get("timestamp"):
-        data["timestamp"] = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
-    db.collection("feedback").document(feedback.feedbackId).set(data)
-    return {"message": "Feedback created successfully"}
 
-@router.get("/feedback")
-def get_feedback():
-    docs = db.collection("feedback").stream()
-    return [doc.to_dict() for doc in docs]
+# --- Admin-only helper -------------------------------------------------------
+def require_admin(user=Depends(get_current_user)):
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admins only")
+    return user
 
-@router.put("/feedback/{feedback_id}")
-def update_feedback(feedback_id: str, feedback: Feedback):
+
+# --- Pydantic models ---------------------------------------------------------
+class FeedbackCreate(BaseModel):
+    message: str = Field(..., example="Great app!")
+    rating: Optional[int] = Field(None, ge=1, le=5, example=4)
+    recordingId: Optional[str] = Field(None, example="abc123")
+
+
+class FeedbackResponse(BaseModel):
+    response: str = Field(..., example="Thank you for your feedback!")
+
+
+# --- Routes ------------------------------------------------------------------
+@router.post("/", response_model=Dict[str, str])
+def create_feedback(payload: FeedbackCreate, user=Depends(get_current_user)):
+    """
+    Logged-in users can create feedback. Links to a recordingId (optional).
+    """
+    doc_ref = db.collection("feedback").document()
+    data = {
+        "id": doc_ref.id,
+        "userId": user["uid"],
+        "username": user.get("name") or user.get("email"),
+        "role": user.get("role") or "volunteer",
+        "message": payload.message,
+        "rating": payload.rating,
+        "recordingId": payload.recordingId,
+        "timestamp": firestore.SERVER_TIMESTAMP,
+    }
+    doc_ref.set(data)
+    return {"message": "Feedback submitted"}
+
+
+@router.get("/", response_model=List[Dict[str, str]])
+def list_my_feedback(user=Depends(get_current_user)):
+    """
+    Each user only sees the feedback they personally submitted.
+    """
+    q = (
+        db.collection("feedback")
+        .where("userId", "==", user["uid"])
+        .order_by("timestamp", direction=firestore.Query.DESCENDING)
+    )
+    return [d.to_dict() for d in q.stream()]
+
+
+@router.delete("/{feedback_id}", response_model=Dict[str, str])
+def delete_feedback(feedback_id: str, user=Depends(get_current_user)):
+    """
+    Only delete your own feedback.
+    """
     doc_ref = db.collection("feedback").document(feedback_id)
-    if not doc_ref.get().exists:
+    doc = doc_ref.get()
+    if not doc.exists:
         raise HTTPException(status_code=404, detail="Feedback not found")
-    doc_ref.update(feedback.dict(exclude_unset=True))
-    return {"message": "Feedback updated successfully"}
-
-@router.delete("/feedback/{feedback_id}")
-def delete_feedback(feedback_id: str):
-    doc_ref = db.collection("feedback").document(feedback_id)
-    if not doc_ref.get().exists:
-        raise HTTPException(status_code=404, detail="Feedback not found")
+    data = doc.to_dict()
+    if data["userId"] != user["uid"]:
+        raise HTTPException(status_code=403, detail="Not your feedback")
     doc_ref.delete()
-    return {"message": "Feedback deleted successfully"}
+    return {"message": "Feedback deleted"}
+
+
+@router.post("/{feedback_id}/respond", response_model=Dict[str, str])
+def respond_feedback(feedback_id: str, payload: FeedbackResponse, admin=Depends(require_admin)):
+    """
+    Admin-only: attach an internal response message to any feedback entry.
+    """
+    doc_ref = db.collection("feedback").document(feedback_id)
+    if not doc_ref.get().exists:
+        raise HTTPException(status_code=404, detail="Feedback not found")
+    doc_ref.update({"response": payload.response})
+    return {"message": "Response added"}
