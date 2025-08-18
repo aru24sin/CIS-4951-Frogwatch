@@ -1,0 +1,11 @@
+{
+  "architecture": "FrogNet",
+  "input_channels": 1,
+  "spec_size": [
+    64,
+    64
+  ],
+  "n_mels": 64,
+  "sample_rate": 44100,
+  "created_at": "2025-08-16 19:28:15"
+}
