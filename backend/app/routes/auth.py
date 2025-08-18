@@ -180,3 +180,27 @@ def forgot_password(email: EmailStr):
     if resp.status_code != 200:
         raise HTTPException(status_code=400, detail="Failed to send reset email")
     return {"message": "Reset email sent"}
+
+@router.post("/login-username", response_model=LoginResp)
+def login_by_username(username: str = Body(...), password: str = Body(...)):
+    """
+    Allow login using username OR email.
+    If an email was provided in the username field, login as usual.
+    Otherwise, look up email by username in Firestore.
+    """
+    # If it's already an email, just call the normal login flow
+    if "@" in username:
+        return login(LoginReq(email=username, password=password))
+
+    # Otherwise, treat as username and find the user document
+    q = db.collection("users").where("username", "==", username).limit(1).stream()
+    user_doc = next(iter(q), None)
+    if not user_doc:
+        raise HTTPException(status_code=404, detail="Username not found")
+
+    user_email = user_doc.to_dict().get("email")
+    if not user_email:
+        raise HTTPException(status_code=400, detail="User missing email")
+
+    # Now login with the discovered email
+    return login(LoginReq(email=user_email, password=password))
