@@ -1,7 +1,10 @@
+import { useRouter } from 'expo-router';
 import React from 'react';
 import { Image, ImageBackground, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
-export default function LandingScreen({ navigation }: any) {
+export default function LandingScreen() {
+  const router = useRouter();
+
   return (
     <ImageBackground
       source={require('../../assets/images/gradient-background.png')}
@@ -25,10 +28,10 @@ export default function LandingScreen({ navigation }: any) {
 
       {/* Buttons */}
       <View style={styles.bottomButtons}>
-        <TouchableOpacity style={styles.button} onPress={() => navigation.navigate('Login')}>
+        <TouchableOpacity style={styles.button} onPress={() => router.push('/login')}>
           <Text style={styles.buttonText}>Login</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.button} onPress={() => navigation.navigate('Register')}>
+        <TouchableOpacity style={styles.button} onPress={() => router.push('/register')}>
           <Text style={styles.buttonText}>Register</Text>
         </TouchableOpacity>
       </View>
@@ -49,13 +52,13 @@ const styles = StyleSheet.create({
     height: 150,
     resizeMode: 'contain',
     marginTop: 270,
-    marginRight: 225
+    marginRight: 225,
   },
   middleContent: {
     flex: 1,
     justifyContent: 'flex-end',
     paddingHorizontal: 30,
-    marginBottom: 2
+    marginBottom: 2,
   },
   title: {
     fontSize: 55,
@@ -91,6 +94,6 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingLeft: 5,
     paddingRight: 5,
-    paddingBottom: 15
+    paddingBottom: 15,
   },
 });

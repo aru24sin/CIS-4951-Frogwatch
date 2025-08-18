@@ -6,7 +6,7 @@ import React, { useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  Image,
+  ImageBackground,
   Modal,
   StyleSheet,
   Text,
@@ -38,7 +38,6 @@ export default function LoginScreen() {
       const cred = await signInWithEmailAndPassword(auth, email.trim(), password);
       console.log('Logged in as:', cred.user.email);
       // TODO: navigate wherever you want after login
-      // router.replace('/(tabs)/recordScreen');
     } catch (e: any) {
       setError(e?.message ?? 'Login failed.');
     } finally {
@@ -47,7 +46,6 @@ export default function LoginScreen() {
   };
 
   const handleForgot = async () => {
-    // Call your callable verifyAnswers; if allowed, send the reset email from the client
     setFpBusy(true);
     try {
       const verify = httpsCallable(functions, 'verifyAnswers');
@@ -59,9 +57,7 @@ export default function LoginScreen() {
       if (res?.data?.allow) {
         try {
           await sendPasswordResetEmail(auth, fpEmail.trim().toLowerCase());
-        } catch {
-          // swallow to avoid account enumeration; we still show the generic message below
-        }
+        } catch {}
       }
 
       Alert.alert(
@@ -83,16 +79,16 @@ export default function LoginScreen() {
   };
 
   return (
-    <View style={styles.container}>
-      <View style={{ alignItems: 'center', marginTop: 40 }}>
-        <Image source={require('../../assets/images/frog_logo.png')} style={{ width: 100, height: 100 }} />
-      </View>
-
-      <Text style={styles.title}>Frogwatch+</Text>
+    <ImageBackground
+      source={require('../../assets/images/gradient-background.png')}
+      style={styles.container}
+      resizeMode="cover"
+    >
+      <Text style={styles.title}>Login</Text>
 
       <TextInput
-        placeholder="Email"
-        placeholderTextColor="#666"
+        placeholder="Username"
+        placeholderTextColor="#fff"
         value={email}
         onChangeText={setEmail}
         style={styles.input}
@@ -101,7 +97,7 @@ export default function LoginScreen() {
       />
       <TextInput
         placeholder="Password"
-        placeholderTextColor="#666"
+        placeholderTextColor="#fff"
         value={password}
         onChangeText={setPassword}
         style={styles.input}
@@ -111,14 +107,13 @@ export default function LoginScreen() {
       {error !== '' && <Text style={styles.error}>{error}</Text>}
 
       <TouchableOpacity onPress={handleLogin} style={[styles.button, busy && { opacity: 0.7 }]} disabled={busy}>
-        {busy ? <ActivityIndicator /> : <Text style={styles.buttonText}>Login</Text>}
+        {busy ? <ActivityIndicator /> : <Text style={styles.buttonText}>Enter</Text>}
       </TouchableOpacity>
 
       <TouchableOpacity onPress={() => setForgotOpen(true)}>
         <Text style={styles.link}>Forgot password?</Text>
       </TouchableOpacity>
 
-      {/* Use Link if you’re on expo-router */}
       <Link href="./register" style={styles.link}>
         New user? Register here
       </Link>
@@ -128,71 +123,129 @@ export default function LoginScreen() {
         <View style={styles.modalBackdrop}>
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>Reset password</Text>
+
             <TextInput
               placeholder="Email"
-              placeholderTextColor="#666"
+              placeholderTextColor="#f1f1f1ff"
               value={fpEmail}
               onChangeText={setFpEmail}
-              style={styles.input}
+              style={styles.modalInput}
               keyboardType="email-address"
               autoCapitalize="none"
             />
             <TextInput
               placeholder="What city were you born in?"
-              placeholderTextColor="#666"
+              placeholderTextColor="#f1f1f1ff"
               value={ans1}
               onChangeText={setAns1}
-              style={styles.input}
+              style={styles.modalInput}
             />
             <TextInput
               placeholder="What is your favorite food?"
-              placeholderTextColor="#666"
+              placeholderTextColor="#f1f1f1ff"
               value={ans2}
               onChangeText={setAns2}
-              style={styles.input}
+              style={styles.modalInput}
             />
             <TextInput
               placeholder="What is your mother's maiden name?"
-              placeholderTextColor="#666"
+              placeholderTextColor="#f1f1f1ff"
               value={ans3}
               onChangeText={setAns3}
-              style={styles.input}
+              style={styles.modalInput}
             />
 
-            <View style={{ flexDirection: 'row', gap: 12 }}>
-              <TouchableOpacity style={[styles.button, { flex: 1 }]} onPress={handleForgot} disabled={fpBusy}>
-                {fpBusy ? <ActivityIndicator /> : <Text style={styles.buttonText}>Send reset email</Text>}
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={[styles.modalButton, { backgroundColor: '#1f2b20' }]}
+                onPress={handleForgot}
+                disabled={fpBusy}
+              >
+                {fpBusy ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalButtonText}>Send email</Text>}
               </TouchableOpacity>
-              <TouchableOpacity style={[styles.button, { flex: 1, backgroundColor: '#aaa' }]} onPress={() => setForgotOpen(false)} disabled={fpBusy}>
-                <Text style={styles.buttonText}>Cancel</Text>
+
+              <TouchableOpacity
+                style={[styles.modalButton, { backgroundColor: '#222d22ff' }]}
+                onPress={() => setForgotOpen(false)}
+                disabled={fpBusy}
+              >
+                <Text style={styles.modalButtonText}>Cancel</Text>
               </TouchableOpacity>
             </View>
           </View>
         </View>
       </Modal>
-    </View>
+    </ImageBackground>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#e6f9e1', justifyContent: 'center', paddingHorizontal: 24 },
-  title: { fontSize: 32, fontWeight: '600', color: '#2e7d32', textAlign: 'center', marginBottom: 40 },
+  container: { flex: 1, justifyContent: 'center', paddingHorizontal: 24 },
+  title: {
+    fontSize: 68,
+    fontWeight: '400',
+    color: '#000',
+    marginBottom: 20,
+    marginLeft: 10,
+  },
   input: {
-    backgroundColor: '#fff', padding: 14, borderRadius: 12, marginBottom: 18,
-    borderWidth: 1, borderColor: '#c8e6c9', fontSize: 16, color: '#000',
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    padding: 18,
+    borderRadius: 30,
+    paddingTop: 22,
+    paddingBottom: 22,
+    marginBottom: 10,
+    fontSize: 18,
+    color: '#fff',
   },
   button: {
-    backgroundColor: '#66bb6a', padding: 14, borderRadius: 12, alignItems: 'center',
-    marginTop: 10, marginBottom: 20, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 5, elevation: 2,
+    backgroundColor: '#2D3E32',
+    paddingVertical: 16,
+    paddingHorizontal: 40,
+    borderRadius: 50,
+    alignItems: 'center',
+    marginTop: 10,
+    marginBottom: 20,
+    alignSelf: 'center',
+    minWidth: 160,
   },
-  buttonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
-  link: { color: '#2e7d32', textAlign: 'center', marginTop: 8, textDecorationLine: 'underline' },
+  buttonText: { color: '#fff', fontSize: 20, fontWeight: '500' },
+  link: { color: '#000', textAlign: 'center', marginTop: 8, textDecorationLine: 'underline' },
   error: { color: '#d32f2f', textAlign: 'center', marginBottom: 10 },
   modalBackdrop: {
     flex: 1, backgroundColor: 'rgba(0,0,0,0.3)', justifyContent: 'center', padding: 24,
   },
   modalCard: {
-    backgroundColor: '#eafbe4', borderRadius: 16, padding: 20,
+    backgroundColor: '#252c25ff', borderRadius: 16, padding: 20,
   },
-  modalTitle: { fontSize: 20, fontWeight: '700', color: '#2e7d32', marginBottom: 12 },
+  modalTitle: { fontSize: 20, fontWeight: '700', color: '#3ab132ff', marginBottom: 12 },
+  modalInput: {
+    backgroundColor: '#151515ff',
+    padding: 16,
+    borderRadius: 25,
+    marginBottom: 16,
+    fontSize: 16,
+    color: '#000',
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 12,
+  },
+  modalButton: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 25,
+    alignItems: 'center',
+    marginHorizontal: 6,
+    borderStyle: 'solid',
+    borderWidth: 1,
+    borderColor: '#3ab132ff',
+  },
+  modalButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+
 });
