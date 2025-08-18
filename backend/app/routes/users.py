@@ -6,7 +6,7 @@ from typing import List
 from backend.firebase import db
 from firebase_admin import auth
 from backend.app.routes.auth import get_current_user
-from backend.utils.push import send_push  # <-- you'll need push.py helper
+from backend.utils.push import send_push  # need push.py helper
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -50,15 +50,24 @@ class UpdateSecurityQA(BaseModel):
     securityAnswers: List[str]
 
 
-# --- Routes ---
+class UserSettings(BaseModel):
+    userId: str
+    shareGPS: bool = True
+    notificationsEnabled: bool = True
 
+class PushTest(BaseModel):
+    fcmToken: str
+    title: str = "Frogwatch"
+    body: str = "Test push!"
+
+
+# --- Routes ---
 
 @router.post("")
 def create_or_update_user(profile: UserProfile, user=Depends(get_current_user)):
     if user["uid"] != profile.userId:
         raise HTTPException(status_code=403, detail="Not your profile")
 
-    # Must have 3 Q/A
     if len(profile.securityQuestions) != 3 or len(profile.securityAnswers) != 3:
         raise HTTPException(status_code=400, detail="Exactly 3 questions and 3 answers are required")
 
@@ -160,10 +169,8 @@ def update_user_role(user_id: str, newRole: str = Body(..., embed=True), admin=D
     if not snap.exists:
         raise HTTPException(status_code=404, detail="User not found")
 
-    # update role in firestore
     ref.update({"role": newRole})
 
-    # Send push notification if the user has an FCM token
     d = snap.to_dict()
     fcm = d.get("fcmToken")
     if fcm:
@@ -172,3 +179,45 @@ def update_user_role(user_id: str, newRole: str = Body(..., embed=True), admin=D
         elif newRole == "admin":
             send_push(fcm, "Frogwatch", "You are now an admin!")
     return {"message": f"Role updated to {newRole}"}
+
+
+# --- NEW 11.3 Settings/Toggles -------------
+@router.post("/settings")
+def update_settings(settings: UserSettings, user=Depends(get_current_user)):
+    if settings.userId != user["uid"]:
+        raise HTTPException(status_code=403, detail="Not your profile")
+
+    db.collection("users").document(settings.userId).set({
+        "settings": {
+            "shareGPS": settings.shareGPS,
+            "notificationsEnabled": settings.notificationsEnabled
+        }
+    }, merge=True)
+    return {"message": "Settings saved successfully"}
+
+
+@router.get("/settings/{user_id}")
+def get_settings(user_id: str, user=Depends(get_current_user)):
+    if user_id != user["uid"]:
+        raise HTTPException(status_code=403, detail="Not your profile")
+
+    snap = db.collection("users").document(user_id).get()
+    if not snap.exists:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    d = snap.to_dict()
+    return d.get("settings", {
+        "shareGPS": True,
+        "notificationsEnabled": True
+    })
+
+@router.post("/test-push")
+def test_push(payload: PushTest, admin=Depends(get_current_user)):
+    """Manually send a push notification to a specific device.
+       (must be logged in as admin)."""
+    # Optional: restrict to admins only
+    if admin.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admins only")
+
+    send_push(payload.fcmToken, payload.title, payload.body)
+    return {"message": "Push sent"}

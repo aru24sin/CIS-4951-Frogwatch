@@ -5,25 +5,29 @@ from firebase_admin import messaging
 
 def send_push(token: str, title: str, body: str):
     """
-    Send a basic push notification through Firebase Cloud Messaging (FCM).
-    The device must have registered its fcmToken first.
+    Sends a basic FCM push notification to a single device.
 
     Args:
-        token: The device FCM token (string)
-        title: Notification title
-        body: Notification body
+        token (str): FCM "device token" from the phone.
+        title (str): Notification title.
+        body  (str): Notification body text.
     """
-    # Build the message payload
+    # Ensure Firebase Admin is initialized
+    if not firebase_admin._apps:
+        firebase_admin.initialize_app()
+
     message = messaging.Message(
-        token=token,
         notification=messaging.Notification(
             title=title,
-            body=body,
+            body=body
         ),
+        token=token
     )
 
     try:
         response = messaging.send(message)
-        print("Push sent:", response)
+        print("FCM push sent:", response)
+        return response
     except Exception as e:
-        print("Failed to send push:", e)
+        print("FCM push error:", e)
+        return None
