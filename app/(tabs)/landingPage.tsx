@@ -45,20 +45,24 @@ const styles = StyleSheet.create({
     marginTop: 80,
   },
   logo: {
-    width: 1500,
+    width: 150,
     height: 150,
     resizeMode: 'contain',
+    marginTop: 270,
+    marginRight: 225
   },
   middleContent: {
     flex: 1,
     justifyContent: 'flex-end',
     paddingHorizontal: 30,
+    marginBottom: 2
   },
   title: {
-    fontSize: 70,
+    fontSize: 55,
     fontWeight: '400',
     color: '#000',
     textAlign: 'left',
+    lineHeight: 60,
   },
   frogWord: {
     color: '#50BD46',
@@ -67,20 +71,26 @@ const styles = StyleSheet.create({
   bottomButtons: {
     flexDirection: 'row',
     justifyContent: 'space-around',
-    marginBottom: 80,
-    paddingHorizontal: 10,
+    marginBottom: 70,
+    paddingHorizontal: 20,
+    paddingVertical: 20,
   },
   button: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.4)',
     padding: 18,
     borderRadius: 20,
-    marginHorizontal: 8,
+    marginHorizontal: 3,
     alignItems: 'center',
   },
   buttonText: {
     color: '#fff',
-    fontSize: 38,
+    fontSize: 34,
     fontWeight: '300',
+    textAlign: 'center',
+    paddingTop: 12,
+    paddingLeft: 5,
+    paddingRight: 5,
+    paddingBottom: 15
   },
 });
