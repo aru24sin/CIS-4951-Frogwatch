@@ -1,17 +1,26 @@
-// firebaseConfig.ts
-import { initializeApp } from 'firebase/app';
+// firebaseConfig.ts 
+import { getApp, getApps, initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
+
 import { getFirestore } from 'firebase/firestore';
+import { getFunctions } from 'firebase/functions';
+import { getStorage } from 'firebase/storage';
+
 
 const firebaseConfig = {
-  apiKey: 'AIzaSyABWfk9NTHL8sCRHMgEzmVD8in6QP4LHeQ',
-  authDomain: 'frogwatch-beta.firebaseapp.com',
-  projectId: 'frogwatch-beta',
-  storageBucket: 'frogwatch-beta.firebasestorage.app',
-  messagingSenderId: '298888687683',
-  appId: '1:298888687683:web:4918de1d3e77fcd31be4f6',
+  apiKey: 'AIzaSyBAC0q10qWH-_v1j9KOpnCqTQnXP7EZBwM',
+  authDomain: 'frogwatch-backend.firebaseapp.com',
+  projectId: 'frogwatch-backend',
+  storageBucket: 'frogwatch-backend.appspot.com',
+  messagingSenderId: '1066546787031',
+  appId: '1:1066546787031:web:026e93e5c6050910a9b692',
 };
 
-const app = initializeApp(firebaseConfig);
+const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
+
 export const auth = getAuth(app);
 export const db = getFirestore(app);
+export const storage = getStorage(app);
+export const functions = getFunctions(app, 'us-central1');
+
+export default app;
