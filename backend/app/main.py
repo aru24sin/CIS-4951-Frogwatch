@@ -10,7 +10,7 @@ load_dotenv()
 import backend.firebase
 
 # Routers
-from backend.app.routes import audio, users, recordings, approvals, feedback, email, auth
+from backend.app.routes import audio, users, recordings, approvals, feedback, email, auth, model
 
 # 👇 This makes Swagger show lock icon + handle Authorization header automatically
 security = HTTPBearer()
@@ -27,6 +27,7 @@ app.include_router(recordings.router, dependencies=[Depends(security)])
 app.include_router(approvals.router, dependencies=[Depends(security)])
 app.include_router(feedback.router, dependencies=[Depends(security)])
 app.include_router(email.router, dependencies=[Depends(security)])
+app.include_router(model.router)
 
 @app.get("/")
 def read_root():
