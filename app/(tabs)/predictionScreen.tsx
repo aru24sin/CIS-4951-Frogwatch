@@ -1,58 +1,138 @@
+// app/(tabs)/predictionScreen.tsx
 import { Picker } from '@react-native-picker/picker';
 import { Audio } from 'expo-av';
+import Constants from 'expo-constants';
+import * as FileSystem from 'expo-file-system';
 import { useLocalSearchParams } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-    Alert,
-    Image,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  Alert,
+  Image,
+  NativeModules,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 
-const speciesImageMap: { [key: string]: string } = {
+type TopItem = { species: string; confidence: number };
+
+const speciesImageMap: Record<string, any> = {
   'American Bullfrog': require('../../assets/frogs/bullfrog.png'),
   'Green Treefrog': require('../../assets/frogs/treefrog.png'),
   'Spring Peeper': require('../../assets/frogs/spring_peeper.png'),
   'Northern Leopard Frog': require('../../assets/frogs/northern_leopard.png'),
   'Gray Treefrog': require('../../assets/frogs/gray_treefrog.png'),
-  // Add more mappings as needed
 };
-
 const placeholderImage = require('../../assets/frogs/placeholder.png');
 
-const PredictionScreen = () => {
-  const { audioUri, latitude, longitude } = useLocalSearchParams();
+/** ---------- dynamic API base for dev ---------- */
+// Optional one-line override if you want to hardcode your laptop IP quickly:
+const DEV_HOST_OVERRIDE = ''; // e.g. '192.168.1.80'  <-- set this temporarily if needed
 
-  const location = {
-    latitude: Number(latitude),
-    longitude: Number(longitude),
-  };
+function pickDevHost() {
+  if (DEV_HOST_OVERRIDE) return DEV_HOST_OVERRIDE;
+
+  // Newer Expo fields:
+  const hostUri =
+    (Constants as any)?.expoGoConfig?.hostUri ??
+    (Constants as any)?.expoGoConfig?.debuggerHost ??
+    (Constants as any)?.expoConfig?.hostUri ??
+    '';
+
+  if (hostUri) {
+    // formats like "192.168.1.80:19000" or "192.168.1.80:8081"
+    const h = String(hostUri).split(':')[0];
+    if (h) return h;
+  }
+
+  // Fallback to scriptURL (Hermes/Metro bundle URL)
+  const scriptURL: string | undefined = (NativeModules as any)?.SourceCode?.scriptURL;
+  const m = scriptURL?.match(/\/\/([^/:]+):\d+/);
+  return m?.[1] ?? 'localhost';
+}
+
+export const API_BASE = __DEV__
+  ? `http://${pickDevHost()}:8000`
+  : 'https://your-production-domain';
+
+console.log('[api] scriptURL =', (NativeModules as any)?.SourceCode?.scriptURL);
+console.log('[api] hostUri   =', (Constants as any)?.expoGoConfig?.hostUri || (Constants as any)?.expoConfig?.hostUri);
+console.log('[api] API_BASE  =', API_BASE);
+/** ---------------------------------------------- */
+
+export default function PredictionScreen() {
+  const params = useLocalSearchParams<{ audioUri?: string; lat?: string; lon?: string }>();
+  const audioUri = params.audioUri ?? '';
+  const lat = Number(params.lat ?? NaN);
+  const lon = Number(params.lon ?? NaN);
 
   const [sound, setSound] = useState<Audio.Sound | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [apiError, setApiError] = useState<string | null>(null);
   const [predictedSpecies, setPredictedSpecies] = useState('American Bullfrog');
-  const [confidence, setConfidence] = useState('');
+  const [confidenceInput, setConfidenceInput] = useState('');
+  const [top3, setTop3] = useState<TopItem[]>([]);
+  const mountedRef = useRef(true);
 
   useEffect(() => {
     return () => {
-      if (sound) {
-        sound.unloadAsync();
-      }
+      mountedRef.current = false;
+      if (sound) sound.unloadAsync().catch(() => {});
     };
   }, [sound]);
 
+  useEffect(() => {
+    (async () => {
+      if (!audioUri) return;
+
+      const info = await FileSystem.getInfoAsync(audioUri);
+      if (!info.exists) {
+        setApiError('Recorded file is missing. Please re-record.');
+        return;
+      }
+
+      setLoading(true);
+      setApiError(null);
+      try {
+        const res = await callPredict(audioUri, isFinite(lat) ? lat : undefined, isFinite(lon) ? lon : undefined);
+        const pct = toPercent(res.confidence);
+        if (!mountedRef.current) return;
+        setPredictedSpecies(res.species || 'American Bullfrog');
+        setConfidenceInput(String(Math.round(pct)));
+        setTop3((res.top3 ?? []).map((t: any) => ({
+          species: t.species ?? t[0],
+          confidence: toPercent(t.confidence ?? t[1]),
+        })));
+      } catch (e: any) {
+        if (!mountedRef.current) return;
+        setApiError(e?.message || 'Prediction failed');
+      } finally {
+        if (mountedRef.current) setLoading(false);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [audioUri]);
+
+  const speciesImage = useMemo(
+    () => speciesImageMap[predictedSpecies] || placeholderImage,
+    [predictedSpecies]
+  );
+
   const handlePlay = async () => {
+    if (!audioUri) return;
     try {
+      const info = await FileSystem.getInfoAsync(audioUri);
+      if (!info.exists) {
+        Alert.alert('Audio missing', 'The recorded file is no longer available. Please re-record.');
+        return;
+      }
       if (sound) {
         await sound.replayAsync();
       } else {
-        const { sound: newSound } = await Audio.Sound.createAsync(
-          { uri: audioUri as string },
-          { shouldPlay: true }
-        );
+        const { sound: newSound } = await Audio.Sound.createAsync({ uri: audioUri }, { shouldPlay: true });
         setSound(newSound);
       }
     } catch (error) {
@@ -60,32 +140,78 @@ const PredictionScreen = () => {
     }
   };
 
-  const handleSubmit = () => {
-    const score = parseInt(confidence);
-    if (isNaN(score) || score < 0 || score > 100) {
-      Alert.alert('Invalid Confidence Score', 'Please enter an integer between 0 and 100.');
+  const handleSubmit = async () => {
+    const score = parseInt(confidenceInput, 10);
+    if (Number.isNaN(score) || score < 0 || score > 100) {
+      Alert.alert('Invalid Confidence', 'Please enter an integer between 0 and 100.');
       return;
     }
-
-    const data = {
+    const payload = {
       species: predictedSpecies,
-      confidence: score,
-      location,
+      confidencePercent: score,
+      confidence: score / 100,
+      lat: isFinite(lat) ? lat : undefined,
+      lon: isFinite(lon) ? lon : undefined,
+      audioUri,
+      top3,
     };
-
-    console.log('Submitting prediction data:', data);
+    console.log('Submitting prediction data:', payload);
     Alert.alert('Submitted', 'Your data has been submitted.');
   };
-
-  const speciesImage = speciesImageMap[predictedSpecies] || placeholderImage;
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <Image source={speciesImage} style={styles.image} resizeMode="contain" />
       <Text style={styles.speciesName}>{predictedSpecies}</Text>
 
+      {isFinite(lat) && isFinite(lon) && (
+        <Text style={{ marginBottom: 8, opacity: 0.7 }}>
+          Location used: {lat.toFixed(4)}, {lon.toFixed(4)}
+        </Text>
+      )}
+
+      {loading && <Text style={{ marginBottom: 8 }}>Running model…</Text>}
+      {apiError && <Text style={{ color: '#d32f2f', marginBottom: 8 }}>{apiError}</Text>}
+
+      {top3.length > 0 && (
+        <View style={styles.topBox}>
+          <Text style={styles.topHeader}>Model suggestions</Text>
+          {top3.map((t, i) => (
+            <View key={`${t.species}-${i}`} style={styles.topRow}>
+              <Text style={styles.topRowSpecies}>{i + 1}. {t.species}</Text>
+              <Text style={styles.topRowConf}>{Math.round(t.confidence)}%</Text>
+            </View>
+          ))}
+        </View>
+      )}
+
       <TouchableOpacity style={styles.actionButton} onPress={handlePlay}>
         <Text style={styles.actionButtonText}>Play Recording</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={[styles.actionButton, { marginTop: 10 }]}
+        onPress={async () => {
+          if (!audioUri) return;
+          setLoading(true);
+          setApiError(null);
+          try {
+            const res = await callPredict(audioUri, isFinite(lat) ? lat : undefined, isFinite(lon) ? lon : undefined);
+            const pct = toPercent(res.confidence);
+            setPredictedSpecies(res.species || 'American Bullfrog');
+            setConfidenceInput(String(Math.round(pct)));
+            setTop3((res.top3 ?? []).map((t: any) => ({
+              species: t.species ?? t[0],
+              confidence: toPercent(t.confidence ?? t[1]),
+            })));
+          } catch (e: any) {
+            setApiError(e?.message || 'Prediction failed');
+          } finally {
+            setLoading(false);
+          }
+        }}
+      >
+        <Text style={styles.actionButtonText}>Re-run Model</Text>
       </TouchableOpacity>
 
       <Text style={styles.label}>Confirm Species:</Text>
@@ -101,11 +227,11 @@ const PredictionScreen = () => {
         </Picker>
       </View>
 
-      <Text style={styles.label}>Confidence Score (0–100):</Text>
+      <Text style={styles.label}>Confidence (0–100):</Text>
       <TextInput
         style={styles.input}
-        value={confidence}
-        onChangeText={setConfidence}
+        value={confidenceInput}
+        onChangeText={setConfidenceInput}
         placeholder="e.g. 85"
         keyboardType="number-pad"
       />
@@ -115,67 +241,75 @@ const PredictionScreen = () => {
       </TouchableOpacity>
     </ScrollView>
   );
-};
+}
+
+/* ----------------- helpers ----------------- */
+
+function guessMime(uri: string) {
+  const lower = uri.toLowerCase();
+  if (lower.endsWith('.wav')) return 'audio/wav';
+  if (lower.endsWith('.m4a')) return 'audio/m4a';
+  if (lower.endsWith('.mp3')) return 'audio/mpeg';
+  return 'application/octet-stream';
+}
+
+function toPercent(confMaybe01: number) {
+  return confMaybe01 <= 1 ? confMaybe01 * 100 : confMaybe01;
+}
+
+async function callPredict(uri: string, lat?: number, lon?: number) {
+  const mime = guessMime(uri);
+  const form = new FormData();
+  form.append('file', { uri, name: uri.split('/').pop() || 'clip', type: mime } as any);
+  if (typeof lat === 'number') form.append('lat', String(lat));
+  if (typeof lon === 'number') form.append('lon', String(lon));
+
+  const endpoints = [`${API_BASE}/predict`, `${API_BASE}/ml/predict`];
+  let lastErr: any = null;
+
+  for (const url of endpoints) {
+    try {
+      console.log('[predict] POST', url, { mime, uri });
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 90000); // 90s
+
+      // Do NOT set Content-Type; RN sets the multipart boundary
+      const resp = await fetch(url, { method: 'POST', body: form, signal: controller.signal });
+      clearTimeout(timer);
+
+      if (!resp.ok) {
+        const text = await resp.text().catch(() => '');
+        throw new Error(`HTTP ${resp.status} ${text.slice(0, 200)}`);
+      }
+      const data = await resp.json();
+      return {
+        species: data.species ?? data.name,
+        confidence: typeof data.confidence === 'number' ? data.confidence : 0,
+        top3: Array.isArray(data.top3) ? data.top3 : [],
+      };
+    } catch (e) {
+      console.warn('[predict] failed on', url, e);
+      lastErr = e;
+    }
+  }
+  throw lastErr || new Error('No endpoint responded');
+}
+
+/* ----------------- styles ----------------- */
 
 const styles = StyleSheet.create({
-  container: {
-    backgroundColor: '#e6f9e1',
-    alignItems: 'center',
-    padding: 40,
-    flexGrow: 1,
-  },
-  image: {
-    width: 300,
-    height: 200,
-    borderRadius: 16,
-    marginBottom: 10,
-    borderWidth: 2,
-    borderColor: '#66bb6a',
-  },
-  speciesName: {
-    fontSize: 30,
-    fontWeight: '600',
-    marginBottom: 30,
-  },
-  label: {
-    marginTop: 20,
-    fontWeight: 'bold',
-    alignSelf: 'flex-start',
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: '#ccc',
-    borderRadius: 8,
-    padding: 10,
-    marginVertical: 10,
-    width: '100%',
-  },
-  pickerContainer: {
-    borderWidth: 1,
-    borderColor: '#ccc',
-    borderRadius: 8,
-    marginVertical: 10,
-    width: '100%',
-    overflow: 'hidden',
-  },
-  picker: {
-    width: '100%',
-    height: 60,
-  },
-  actionButton: {
-    backgroundColor: '#66bb6a',
-    paddingVertical: 12,
-    paddingHorizontal: 25,
-    borderRadius: 8,
-    marginTop: 15,
-    width: '100%',
-    alignItems: 'center',
-  },
-  actionButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
+  container: { backgroundColor: '#e6f9e1', alignItems: 'center', padding: 40, flexGrow: 1 },
+  image: { width: 300, height: 200, borderRadius: 16, marginBottom: 10, borderWidth: 2, borderColor: '#66bb6a' },
+  speciesName: { fontSize: 30, fontWeight: '600', marginBottom: 8 },
+  topBox: { width: '100%', backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#c8e6c9', padding: 12, marginBottom: 10 },
+  topHeader: { fontWeight: '700', color: '#2e7d32', marginBottom: 6 },
+  topRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 2 },
+  topRowSpecies: { fontWeight: '500' },
+  topRowConf: { opacity: 0.7 },
+  label: { marginTop: 20, fontWeight: 'bold', alignSelf: 'flex-start' },
+  input: { borderWidth: 1, borderColor: '#ccc', borderRadius: 8, padding: 10, marginVertical: 10, width: '100%' },
+  pickerContainer: { borderWidth: 1, borderColor: '#ccc', borderRadius: 8, marginVertical: 10, width: '100%', overflow: 'hidden' },
+  picker: { width: '100%', height: 60 },
+  actionButton: { backgroundColor: '#66bb6a', paddingVertical: 12, paddingHorizontal: 25, borderRadius: 8, marginTop: 15, width: '100%', alignItems: 'center' },
+  actionButtonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
 });
-
-export default PredictionScreen;

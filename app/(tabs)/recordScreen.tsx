@@ -1,9 +1,12 @@
 import { Audio } from 'expo-av';
+import * as FileSystem from 'expo-file-system';
 import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Animated, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import MapView, { Marker } from 'react-native-maps';
+
+const MAX_RECORD_SECONDS = 10;
 
 export default function RecordScreen() {
   const [location, setLocation] = useState<Location.LocationObjectCoords | null>(null);
@@ -13,25 +16,36 @@ export default function RecordScreen() {
   const [sound, setSound] = useState<Audio.Sound | null>(null);
   const [timer, setTimer] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
+
   const progressAnim = useRef(new Animated.Value(0)).current;
-  const router = useRouter();
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const router = useRouter();
 
   useEffect(() => {
     (async () => {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
         Alert.alert('Location permission denied');
+        setIsLoading(false);
         return;
       }
-
       const loc = await Location.getCurrentPositionAsync({});
       setLocation(loc.coords);
       setIsLoading(false);
     })();
   }, []);
 
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      if (sound) sound.unloadAsync().catch(() => {});
+      if (recording) recording.stopAndUnloadAsync().catch(() => {});
+    };
+  }, [sound, recording]);
+
   const startRecording = async () => {
+    if (isRecording) return;
     try {
       const permission = await Audio.requestPermissionsAsync();
       if (!permission.granted) {
@@ -39,21 +53,29 @@ export default function RecordScreen() {
         return;
       }
 
-      await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+      });
 
-      const { recording } = await Audio.Recording.createAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
+      const { recording } = await Audio.Recording.createAsync(
+        Audio.RecordingOptionsPresets.HIGH_QUALITY
+      );
       setRecording(recording);
       setAudioUri(null);
-      setSound(null);
+      if (sound) {
+        sound.unloadAsync().catch(() => {});
+        setSound(null);
+      }
       setIsRecording(true);
       setTimer(0);
       progressAnim.setValue(0);
 
       intervalRef.current = setInterval(() => {
         setTimer((prev) => {
-          if (prev >= 9) {
+          if (prev >= MAX_RECORD_SECONDS - 1) {
             stopRecording();
-            return 10;
+            return MAX_RECORD_SECONDS;
           }
           return prev + 1;
         });
@@ -61,11 +83,12 @@ export default function RecordScreen() {
 
       Animated.timing(progressAnim, {
         toValue: 1,
-        duration: 10000,
+        duration: MAX_RECORD_SECONDS * 1000,
         useNativeDriver: false,
       }).start();
     } catch (err) {
       console.error('Error starting recording', err);
+      Alert.alert('Error', 'Could not start recording.');
     }
   };
 
@@ -74,22 +97,53 @@ export default function RecordScreen() {
     try {
       if (intervalRef.current) clearInterval(intervalRef.current);
       setIsRecording(false);
+
       await recording.stopAndUnloadAsync();
-      const uri = recording.getURI();
-      setAudioUri(uri);
+      const tmpUri = recording.getURI();
       setRecording(null);
+
+      if (!tmpUri) {
+        Alert.alert('Recording error', 'No audio URI returned.');
+        return;
+      }
+
+      // Persist to a stable location so it won't disappear
+      const dir = FileSystem.documentDirectory + 'recordings/';
+      await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
+
+      const ext = tmpUri.includes('.') ? tmpUri.substring(tmpUri.lastIndexOf('.')) : '.m4a';
+      const finalUri = dir + `rec-${Date.now()}${ext}`;
+      await FileSystem.copyAsync({ from: tmpUri, to: finalUri });
+
+      setAudioUri(finalUri);
     } catch (err) {
       console.error('Error stopping recording', err);
+      Alert.alert('Error', 'Could not stop recording.');
     }
   };
 
   const playAudio = async () => {
     if (!audioUri) return;
-
     try {
-      const { sound } = await Audio.Sound.createAsync({ uri: audioUri });
-      setSound(sound);
-      await sound.playAsync();
+      const info = await FileSystem.getInfoAsync(audioUri);
+      if (!info.exists) {
+        Alert.alert('Audio missing', 'The recorded file is no longer available. Please re-record.');
+        return;
+      }
+
+      if (sound) {
+        const status = await sound.getStatusAsync();
+        if (status.isLoaded) {
+          await sound.replayAsync();
+          return;
+        } else {
+          await sound.unloadAsync().catch(() => {});
+          setSound(null);
+        }
+      }
+
+      const { sound: newSound } = await Audio.Sound.createAsync({ uri: audioUri }, { shouldPlay: true });
+      setSound(newSound);
     } catch (err) {
       console.error('Error playing sound', err);
     }
@@ -97,18 +151,23 @@ export default function RecordScreen() {
 
   const reRecord = () => {
     Alert.alert(
-      "Start New Recording?",
-      "This will delete the current recording. Do you want to continue?",
+      'Start New Recording?',
+      'This will delete the current recording. Do you want to continue?',
       [
-        { text: "Cancel", style: "cancel" },
+        { text: 'Cancel', style: 'cancel' },
         {
-          text: "Yes", style: "destructive", onPress: () => {
+          text: 'Yes',
+          style: 'destructive',
+          onPress: () => {
             setAudioUri(null);
-            setSound(null);
+            if (sound) {
+              sound.unloadAsync().catch(() => {});
+              setSound(null);
+            }
             setTimer(0);
             progressAnim.setValue(0);
-          }
-        }
+          },
+        },
       ]
     );
   };
@@ -116,11 +175,11 @@ export default function RecordScreen() {
   const upload = () => {
     if (audioUri && location) {
       router.push({
-        pathname: '../PredictionScreen',
+        pathname: './predictionScreen',                 // correct route name
         params: {
           audioUri,
-          lat: location.latitude.toString(),
-          lon: location.longitude.toString(),
+          lat: String(location.latitude),
+          lon: String(location.longitude),
         },
       });
     }
@@ -177,13 +236,13 @@ export default function RecordScreen() {
         {audioUri && !isRecording && (
           <>
             <TouchableOpacity style={styles.actionButton} onPress={playAudio}>
-              <Text style={styles.buttonText}> Play Recording</Text>
+              <Text style={styles.buttonText}>Play Recording</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.actionButton} onPress={reRecord}>
               <Text style={styles.buttonText}>Re-record</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.actionButton} onPress={upload}>
-              <Text style={styles.buttonText}>Upload Recording</Text>
+              <Text style={styles.buttonText}>Analyze (send to model)</Text>
             </TouchableOpacity>
           </>
         )}
