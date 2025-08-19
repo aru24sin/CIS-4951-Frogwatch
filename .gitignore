@@ -38,3 +38,5 @@ yarn-error.*
 
 app-example
 nul
+backend/keys/frogwatch-service.json
+.env
