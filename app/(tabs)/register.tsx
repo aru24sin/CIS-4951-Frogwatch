@@ -150,11 +150,11 @@ export default function RegisterScreen() {
 
         <Text style={styles.title2}>Additional Role?</Text>
 
-        {/* Role Selection Buttons */}
+        {/* Role Selection Buttons (default Volunteer, Expert/Admin optional) */}
         <View style={styles.roleRow}>
           <TouchableOpacity
             style={[styles.roleButton, role === 'Expert' && styles.roleButtonActive]}
-            onPress={() => setRole('Expert')}
+            onPress={() => setRole(role === 'Expert' ? 'Volunteer' : 'Expert')}
           >
             <Text style={[styles.roleButtonText, role === 'Expert' && styles.roleButtonTextActive]}>
               Expert
@@ -163,7 +163,7 @@ export default function RegisterScreen() {
 
           <TouchableOpacity
             style={[styles.roleButton, role === 'Admin' && styles.roleButtonActive]}
-            onPress={() => setRole('Admin')}
+            onPress={() => setRole(role === 'Admin' ? 'Volunteer' : 'Admin')}
           >
             <Text style={[styles.roleButtonText, role === 'Admin' && styles.roleButtonTextActive]}>
               Admin
@@ -206,7 +206,7 @@ const styles = StyleSheet.create({
     fontWeight: '400',
     color: '#000',
     textAlign: 'left',
-    marginBottom: 10,
+    marginBottom: 1,
     marginTop: 20,
     paddingTop: 20,
   },
