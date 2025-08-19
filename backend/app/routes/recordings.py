@@ -66,10 +66,16 @@ async def upload_audio(
             timestamp=datetime.utcnow().isoformat(),
         )
 
-        # Save metadata to Firestore
-        firebase.db.collection("recordings").document(recording_id).set(metadata.dict())
+        # Save metadata to Firestore WITH createdBy for security rules
+        data = metadata.dict()
+        data["createdBy"] = metadata.userId
+        firebase.db.collection("recordings").document(recording_id).set(data)
 
-        return {"message": "Audio uploaded successfully", "recordingId": recording_id, "audioURL": audio_url}
+        return {
+            "message": "Audio uploaded successfully",
+            "recordingId": recording_id,
+            "audioURL": audio_url,
+        }
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Upload failed: {e}")
@@ -86,7 +92,10 @@ async def create_recording(recording: Recording, user: CurrentUser = Depends(get
     # Only allow creation if the recording belongs to the current user
     if recording.userId != user["uid"]:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not allowed for this userId")
-    firebase.db.collection("recordings").document(recording.recordingId).set(recording.dict())
+
+    data = recording.dict()
+    data["createdBy"] = recording.userId  # required for Firestore rules
+    firebase.db.collection("recordings").document(recording.recordingId).set(data)
     return {"message": "Recording added successfully"}
 
 # Endpoint to get the download URL for a specific recording
