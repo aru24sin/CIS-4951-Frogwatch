@@ -11,7 +11,7 @@ const firebaseConfig = {
   apiKey: 'AIzaSyBAC0q10qWH-_v1j9KOpnCqTQnXP7EZBwM',
   authDomain: 'frogwatch-backend.firebaseapp.com',
   projectId: 'frogwatch-backend',
-  storageBucket: 'frogwatch-backend.appspot.com',
+  storageBucket: 'frogwatch-backend.firebasestorage.app',
   messagingSenderId: '1066546787031',
   appId: '1:1066546787031:web:026e93e5c6050910a9b692',
 };
