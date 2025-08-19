@@ -104,13 +104,14 @@ const styles = StyleSheet.create({
     justifyContent: "space-between", // pushes bottomSection down
   },
   hello: {
+    marginTop: 20,
     fontSize: 32,
     fontWeight: "400",
     color: "white",
   },
   date: {
     fontSize: 32,
-    fontWeight: "600",
+    fontWeight: "400",
     color: "#ccff00",
     marginBottom: 20,
   },
