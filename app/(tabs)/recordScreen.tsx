@@ -1,9 +1,18 @@
+import { Ionicons } from '@expo/vector-icons';
 import { Audio } from 'expo-av';
 import * as FileSystem from 'expo-file-system';
 import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Animated, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Alert,
+  Animated,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import MapView, { Marker } from 'react-native-maps';
 
 const MAX_RECORD_SECONDS = 10;
@@ -35,7 +44,6 @@ export default function RecordScreen() {
     })();
   }, []);
 
-  // Cleanup on unmount
   useEffect(() => {
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
@@ -73,7 +81,7 @@ export default function RecordScreen() {
 
       intervalRef.current = setInterval(() => {
         setTimer((prev) => {
-          if (prev >= MAX_RECORD_SECONDS - 1) {
+          if (prev + 1 > MAX_RECORD_SECONDS) {
             stopRecording();
             return MAX_RECORD_SECONDS;
           }
@@ -98,6 +106,11 @@ export default function RecordScreen() {
       if (intervalRef.current) clearInterval(intervalRef.current);
       setIsRecording(false);
 
+      // Stop progress animation immediately
+      progressAnim.stopAnimation((currentValue) => {
+        progressAnim.setValue(currentValue);
+      });
+
       await recording.stopAndUnloadAsync();
       const tmpUri = recording.getURI();
       setRecording(null);
@@ -107,7 +120,6 @@ export default function RecordScreen() {
         return;
       }
 
-      // Persist to a stable location so it won't disappear
       const dir = FileSystem.documentDirectory + 'recordings/';
       await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
 
@@ -142,7 +154,10 @@ export default function RecordScreen() {
         }
       }
 
-      const { sound: newSound } = await Audio.Sound.createAsync({ uri: audioUri }, { shouldPlay: true });
+      const { sound: newSound } = await Audio.Sound.createAsync(
+        { uri: audioUri },
+        { shouldPlay: true }
+      );
       setSound(newSound);
     } catch (err) {
       console.error('Error playing sound', err);
@@ -150,32 +165,28 @@ export default function RecordScreen() {
   };
 
   const reRecord = () => {
-    Alert.alert(
-      'Start New Recording?',
-      'This will delete the current recording. Do you want to continue?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Yes',
-          style: 'destructive',
-          onPress: () => {
-            setAudioUri(null);
-            if (sound) {
-              sound.unloadAsync().catch(() => {});
-              setSound(null);
-            }
-            setTimer(0);
-            progressAnim.setValue(0);
-          },
+    Alert.alert('Start New Recording?', 'This will delete the current recording.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Yes',
+        style: 'destructive',
+        onPress: () => {
+          setAudioUri(null);
+          if (sound) {
+            sound.unloadAsync().catch(() => {});
+            setSound(null);
+          }
+          setTimer(0);
+          progressAnim.setValue(0);
         },
-      ]
-    );
+      },
+    ]);
   };
 
   const upload = () => {
     if (audioUri && location) {
       router.push({
-        pathname: './predictionScreen',                 // correct route name
+        pathname: './predictionScreen',
         params: {
           audioUri,
           lat: String(location.latitude),
@@ -195,11 +206,25 @@ export default function RecordScreen() {
   });
 
   return (
-    <View style={{ flex: 1 }}>
-      {/* Top Half - Map */}
-      <View style={{ flex: 1 }}>
+    <View style={styles.container}>
+      {/* Header with nav icons */}
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => router.push('/homeScreen')}>
+          <Ionicons name="arrow-back" size={32} color="#222" style={styles.icon} />
+        </TouchableOpacity>
+
+        <TouchableOpacity onPress={() => Alert.alert('Menu pressed')}>
+          <Ionicons name="menu" size={32} color="#222" style={styles.icon} />
+        </TouchableOpacity>
+      </View>
+
+      {/* Listening label */}
+      <Text style={styles.title}>Listening...</Text>
+
+      {/* Map */}
+      <View style={styles.mapContainer}>
         <MapView
-          style={{ flex: 1 }}
+          style={styles.map}
           region={{
             latitude: location.latitude,
             longitude: location.longitude,
@@ -211,97 +236,80 @@ export default function RecordScreen() {
         </MapView>
       </View>
 
-      {/* Bottom Half - Controls */}
-      <View style={styles.controlContainer}>
-        {!audioUri && (
-          <>
-            {!isRecording ? (
-              <TouchableOpacity style={styles.recordButton} onPress={startRecording}>
-                <Text style={styles.buttonText}>Start Recording</Text>
-              </TouchableOpacity>
-            ) : (
-              <>
-                <View style={styles.progressBarContainer}>
-                  <Animated.View style={[styles.progressBar, { width: progressBarWidth }]} />
-                </View>
-                <Text style={styles.timerText}>{timer}s</Text>
-                <TouchableOpacity style={styles.stopButton} onPress={stopRecording}>
-                  <Text style={styles.buttonText}>Stop Recording</Text>
-                </TouchableOpacity>
-              </>
-            )}
-          </>
-        )}
-
-        {audioUri && !isRecording && (
-          <>
-            <TouchableOpacity style={styles.actionButton} onPress={playAudio}>
-              <Text style={styles.buttonText}>Play Recording</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.actionButton} onPress={reRecord}>
-              <Text style={styles.buttonText}>Re-record</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.actionButton} onPress={upload}>
-              <Text style={styles.buttonText}>Analyze (send to model)</Text>
-            </TouchableOpacity>
-          </>
-        )}
+      {/* Progress */}
+      <View style={styles.progressBarContainer}>
+        <Animated.View style={[styles.progressBar, { width: progressBarWidth }]} />
       </View>
+      <Text style={styles.timerText}>{timer}s</Text>
+
+      {/* Record Button */}
+      {!audioUri && (
+        <TouchableOpacity
+          style={styles.recordButton}
+          onPress={isRecording ? stopRecording : startRecording}
+        >
+          <View style={styles.innerCircle} />
+        </TouchableOpacity>
+      )}
+
+      {/* Actions after recording */}
+      {audioUri && !isRecording && (
+        <View style={styles.actions}>
+          <TouchableOpacity style={styles.actionButton} onPress={playAudio}>
+            <Text style={styles.actionText}>Play</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.actionButton} onPress={reRecord}>
+            <Text style={styles.actionText}>Re-record</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.actionButton} onPress={upload}>
+            <Text style={styles.actionText}>Analyze</Text>
+          </TouchableOpacity>
+        </View>
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  controlContainer: {
-    flex: 1,
-    backgroundColor: '#e6f9e1',
-    alignItems: 'center',
-    justifyContent: 'center',
+  container: { flex: 1, backgroundColor: '#3F5A47', alignItems: 'center' },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '100%',
     padding: 20,
+    marginTop: 50,
   },
-  recordButton: {
-    backgroundColor: '#4CAF50',
-    paddingVertical: 14,
-    borderRadius: 30,
-    width: '80%',
-    alignItems: 'center',
-    marginTop: 10,
-  },
-  stopButton: {
-    backgroundColor: '#ff4444',
-    paddingVertical: 14,
-    borderRadius: 30,
-    width: '80%',
-    alignItems: 'center',
-    marginTop: 10,
-  },
-  actionButton: {
-    backgroundColor: '#4CAF50',
-    paddingVertical: 14,
-    borderRadius: 30,
-    width: '80%',
-    alignItems: 'center',
-    marginTop: 10,
-  },
-  buttonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
+  icon: { backgroundColor: '#00000020', padding: 12, borderRadius: 50 },
+  title: { fontSize: 38, color: 'white', marginBottom: 20, alignSelf: 'flex-start', marginLeft: 20 },
+  mapContainer: { width: 320, height: 250, borderRadius: 20, overflow: 'hidden' },
+  map: { flex: 1 },
   progressBarContainer: {
     width: '80%',
-    height: 10,
-    backgroundColor: '#e0e0e0',
-    borderRadius: 5,
-    marginTop: 20,
+    height: 14,
+    backgroundColor: '#2D3E32',
+    borderRadius: 7,
+    marginTop: 40,
   },
-  progressBar: {
-    height: 10,
-    backgroundColor: '#4CAF50',
-    borderRadius: 5,
+  progressBar: { height: 14, backgroundColor: '#638B6F', borderRadius: 7 },
+  timerText: { fontSize: 22, color: 'white', marginTop: 10 },
+  recordButton: {
+    marginTop: 30,
+    width: 90,
+    height: 90,
+    borderRadius: 45,
+    backgroundColor: '#222',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  timerText: {
-    fontSize: 16,
-    marginTop: 10,
+  innerCircle: { width: 50, height: 50, borderRadius: 25, backgroundColor: 'red' },
+  actions: { marginTop: 20, width: '100%', alignItems: 'center' },
+  actionButton: {
+    backgroundColor: '#638B6F',
+    padding: 12,
+    borderRadius: 12,
+    width: '60%',
+    alignItems: 'center',
+    marginVertical: 5,
   },
+  actionText: { color: 'white', fontSize: 18, fontWeight: '600' },
 });
