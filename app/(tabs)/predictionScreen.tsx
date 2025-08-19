@@ -17,7 +17,16 @@ import {
   View,
 } from 'react-native';
 
+// Firebase
+import app, { db, auth } from '../firebaseConfig';
+import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { signInWithEmailAndPassword } from 'firebase/auth';
+
 type TopItem = { species: string; confidence: number };
+
+// dev credentials
+const EMAIL = 'vnitu393@gmail.com';            
+const PASSWORD = 'hello123';    
 
 const speciesImageMap: Record<string, any> = {
   'American Bullfrog': require('../../assets/frogs/bullfrog.png'),
@@ -28,14 +37,12 @@ const speciesImageMap: Record<string, any> = {
 };
 const placeholderImage = require('../../assets/frogs/placeholder.png');
 
-/** ---------- dynamic API base for dev ---------- */
-// Optional one-line override if you want to hardcode your laptop IP quickly:
-const DEV_HOST_OVERRIDE = ''; // e.g. '192.168.1.80'  <-- set this temporarily if needed
+//dynamic API base for dev 
+const DEV_HOST_OVERRIDE = ''; 
 
 function pickDevHost() {
   if (DEV_HOST_OVERRIDE) return DEV_HOST_OVERRIDE;
 
-  // Newer Expo fields:
   const hostUri =
     (Constants as any)?.expoGoConfig?.hostUri ??
     (Constants as any)?.expoGoConfig?.debuggerHost ??
@@ -43,12 +50,10 @@ function pickDevHost() {
     '';
 
   if (hostUri) {
-    // formats like "192.168.1.80:19000" or "192.168.1.80:8081"
     const h = String(hostUri).split(':')[0];
     if (h) return h;
   }
 
-  // Fallback to scriptURL (Hermes/Metro bundle URL)
   const scriptURL: string | undefined = (NativeModules as any)?.SourceCode?.scriptURL;
   const m = scriptURL?.match(/\/\/([^/:]+):\d+/);
   return m?.[1] ?? 'localhost';
@@ -61,7 +66,22 @@ export const API_BASE = __DEV__
 console.log('[api] scriptURL =', (NativeModules as any)?.SourceCode?.scriptURL);
 console.log('[api] hostUri   =', (Constants as any)?.expoGoConfig?.hostUri || (Constants as any)?.expoConfig?.hostUri);
 console.log('[api] API_BASE  =', API_BASE);
-/** ---------------------------------------------- */
+
+
+//helpers 
+function guessMime(uri: string) {
+  const lower = uri.toLowerCase();
+  if (lower.endsWith('.wav')) return 'audio/wav';
+  if (lower.endsWith('.m4a')) return 'audio/m4a';
+  if (lower.endsWith('.mp3')) return 'audio/mpeg';
+  return 'application/octet-stream';
+}
+function toPercent(confMaybe01: number) {
+  return confMaybe01 <= 1 ? confMaybe01 * 100 : confMaybe01;
+}
+function makeUniqueFileName(ext: string) {
+  return `rec-${Date.now()}-${Math.floor(Math.random() * 1e6)}${ext}`;
+}
 
 export default function PredictionScreen() {
   const params = useLocalSearchParams<{ audioUri?: string; lat?: string; lon?: string }>();
@@ -140,24 +160,96 @@ export default function PredictionScreen() {
     }
   };
 
+  //SUBMIT: sign in-->upload via REST-->write Firestore
   const handleSubmit = async () => {
     const score = parseInt(confidenceInput, 10);
     if (Number.isNaN(score) || score < 0 || score > 100) {
       Alert.alert('Invalid Confidence', 'Please enter an integer between 0 and 100.');
       return;
     }
-    const payload = {
-      species: predictedSpecies,
-      confidencePercent: score,
-      confidence: score / 100,
-      lat: isFinite(lat) ? lat : undefined,
-      lon: isFinite(lon) ? lon : undefined,
-      audioUri,
-      top3,
-    };
-    console.log('Submitting prediction data:', payload);
-    Alert.alert('Submitted', 'Your data has been submitted.');
+    if (!audioUri) {
+      Alert.alert('No recording', 'Please record audio first.');
+      return;
+    }
+
+    try {
+      setLoading(true);
+
+      if (!auth.currentUser) {
+        await signInWithEmailAndPassword(auth, EMAIL, PASSWORD);
+      }
+      const user = auth.currentUser!;
+      const idToken = await user.getIdToken();
+
+      const info = await FileSystem.getInfoAsync(audioUri);
+      if (!info.exists) {
+        Alert.alert('Audio missing', 'The recorded file is no longer available. Please re-record.');
+        return;
+      }
+
+      const contentType = guessMime(audioUri); 
+      const ext =
+        contentType === 'audio/wav' ? '.wav' :
+        contentType === 'audio/m4a' ? '.m4a' :
+        '.mp3';
+
+      const fileName = makeUniqueFileName(ext);
+      const filePath = `uploaded_audios/${fileName}`;
+
+      //Upload to Firebase Storage via REST (
+      const bucket = (app.options as any).storageBucket as string; // e.g. 'frogwatch-backend.appspot.com'
+      const uploadUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o?name=${encodeURIComponent(filePath)}`;
+
+      const result = await FileSystem.uploadAsync(uploadUrl, audioUri, {
+        httpMethod: 'POST',
+        headers: {
+          'Content-Type': contentType,
+          'Authorization': `Bearer ${idToken}`,
+        },
+        uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+      });
+
+      if (result.status < 200 || result.status >= 300) {
+        console.log('Storage upload failed:', result.status, result.body?.slice?.(0, 400));
+        throw new Error(`Storage upload failed (${result.status})`);
+      }
+      console.log('Storage REST upload ok:', result.status);
+
+      const recordingId = `rec_${fileName.slice(0, 8)}`;
+      const nowIso = new Date().toISOString();
+      const audioURL = `/get-audio/${fileName}`; 
+
+      await setDoc(doc(db, 'recordings', recordingId), {
+        recordingId,
+        createdBy: user.uid,          
+        userId: user.uid,             
+        predictedSpecies: predictedSpecies || '',
+        species: '',
+        confidenceScore: score / 100, 
+        top3,
+        fileName,
+        filePath,
+        contentType,
+        audioURL,
+        location: {
+          lat: Number.isFinite(lat) ? lat : 0,
+          lng: Number.isFinite(lon) ? lon : 0,
+        },
+        status: 'pending_analysis',
+        history: [{ action: 'submitted', actorId: user.uid, timestamp: nowIso }],
+        timestamp: serverTimestamp(),
+        timestamp_iso: nowIso,
+      });
+
+      Alert.alert('Submitted', 'Your recording was saved to Firebase.');
+    } catch (err: any) {
+      console.log('Submit failed details:', { name: err?.name, code: err?.code, message: err?.message });
+      Alert.alert('Submit failed', err?.message ?? String(err));
+    } finally {
+      setLoading(false);
+    }
   };
+
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -243,19 +335,7 @@ export default function PredictionScreen() {
   );
 }
 
-/* ----------------- helpers ----------------- */
-
-function guessMime(uri: string) {
-  const lower = uri.toLowerCase();
-  if (lower.endsWith('.wav')) return 'audio/wav';
-  if (lower.endsWith('.m4a')) return 'audio/m4a';
-  if (lower.endsWith('.mp3')) return 'audio/mpeg';
-  return 'application/octet-stream';
-}
-
-function toPercent(confMaybe01: number) {
-  return confMaybe01 <= 1 ? confMaybe01 * 100 : confMaybe01;
-}
+//API helpers
 
 async function callPredict(uri: string, lat?: number, lon?: number) {
   const mime = guessMime(uri);
@@ -273,7 +353,6 @@ async function callPredict(uri: string, lat?: number, lon?: number) {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 90000); // 90s
 
-      // Do NOT set Content-Type; RN sets the multipart boundary
       const resp = await fetch(url, { method: 'POST', body: form, signal: controller.signal });
       clearTimeout(timer);
 
@@ -294,8 +373,6 @@ async function callPredict(uri: string, lat?: number, lon?: number) {
   }
   throw lastErr || new Error('No endpoint responded');
 }
-
-/* ----------------- styles ----------------- */
 
 const styles = StyleSheet.create({
   container: { backgroundColor: '#e6f9e1', alignItems: 'center', padding: 40, flexGrow: 1 },
