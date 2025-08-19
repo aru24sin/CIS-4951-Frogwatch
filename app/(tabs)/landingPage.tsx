@@ -48,11 +48,11 @@ const styles = StyleSheet.create({
     marginTop: 80,
   },
   logo: {
-    width: 150,
-    height: 150,
+    width: 200,
+    height: 200,
     resizeMode: 'contain',
-    marginTop: 270,
-    marginRight: 225,
+    marginTop: 170,
+    marginRight: 0,
   },
   middleContent: {
     flex: 1,
@@ -61,7 +61,7 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   title: {
-    fontSize: 55,
+    fontSize: 45,
     fontWeight: '400',
     color: '#000',
     textAlign: 'left',
@@ -88,7 +88,7 @@ const styles = StyleSheet.create({
   },
   buttonText: {
     color: '#fff',
-    fontSize: 34,
+    fontSize: 28,
     fontWeight: '300',
     textAlign: 'center',
     paddingTop: 12,
