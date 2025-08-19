@@ -55,7 +55,7 @@ export default function HomeScreen() {
                 <Text style={styles.buttonText}>recording</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity style={styles.button}>
+              <TouchableOpacity style={styles.button} onPress={() => router.push("/historyScreen")}>
                 <Ionicons name="bookmark" size={28} color="#ccff00" />
                 <Text style={styles.buttonText}>history</Text>
               </TouchableOpacity>
