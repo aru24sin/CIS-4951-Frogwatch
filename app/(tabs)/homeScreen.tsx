@@ -4,7 +4,7 @@ import { useRouter } from "expo-router";
 import { onAuthStateChanged } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import React, { useEffect, useState } from "react";
-import { ImageBackground, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Image, ImageBackground, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { auth, db } from "../firebaseConfig";
 
 export default function HomeScreen() {
@@ -60,44 +60,45 @@ export default function HomeScreen() {
           <View>
             <Text style={styles.hello}>Hello{fullName ? `, ${fullName}` : ","}</Text>
             <Text style={styles.date}>{formattedDate}</Text>
+            <Image source={require('../../assets/images/frog-umbrella-clipart-xl.png')}style={styles.logo} />
 
           </View>
 
           {/* Status + Buttons pinned to bottom */}
           <View style={styles.bottomSection}>
             <Text style={styles.status}>
-              Status: <Text style={{ color: "white" }}>online</Text>
+              Status: <Text style={{ color: "black" }}>Online</Text>
             </Text>
 
             <View style={styles.grid}>
               <TouchableOpacity style={styles.button} onPress={() => router.push("./recordScreen")}>
                 <Ionicons name="radio-button-on" size={28} color="#ccff00" />
-                <Text style={styles.buttonText}>recording</Text>
+                <Text style={styles.buttonText}>Recording</Text>
               </TouchableOpacity>
 
               <TouchableOpacity style={styles.button} onPress={() => router.push("./historyScreen")}>
                 <Ionicons name="bookmark" size={28} color="#ccff00" />
-                <Text style={styles.buttonText}>history</Text>
+                <Text style={styles.buttonText}>History</Text>
               </TouchableOpacity>
 
               <TouchableOpacity style={styles.button}>
                 <Ionicons name="map" size={28} color="#ccff00" />
-                <Text style={styles.buttonText}>map</Text>
+                <Text style={styles.buttonText}>Map</Text>
               </TouchableOpacity>
 
               <TouchableOpacity style={styles.button}>
                 <Ionicons name="time" size={28} color="#ccff00" />
-                <Text style={styles.buttonText}>submits</Text>
+                <Text style={styles.buttonText}>Submits</Text>
               </TouchableOpacity>
 
               <TouchableOpacity style={styles.button}>
                 <Ionicons name="person-circle" size={28} color="#ccff00" />
-                <Text style={styles.buttonText}>profile</Text>
+                <Text style={styles.buttonText}>Profile</Text>
               </TouchableOpacity>
 
               <TouchableOpacity style={styles.button}>
                 <Ionicons name="settings" size={28} color="#ccff00" />
-                <Text style={styles.buttonText}>settings</Text>
+                <Text style={styles.buttonText}>Settings</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -111,10 +112,11 @@ const styles = StyleSheet.create({
   background: { flex: 1, width: "100%", height: "100%" },
   scrollContainer: { flexGrow: 1 },
   overlay: { flex: 1, paddingTop: 60, paddingHorizontal: 24, paddingBottom: 40, justifyContent: "space-between" },
-  hello: { marginTop: 20, fontSize: 32, fontWeight: "400", color: "white" },
-  date: { fontSize: 32, fontWeight: "400", color: "#ccff00", marginBottom: 20 },
+  hello: { marginTop: 20, fontSize: 32, fontWeight: "400", color: "Black" },
+  date: { fontSize: 32, fontWeight: "500", color: "#e3a300ff", marginBottom: 20 },
+  logo: {  width: 280, height:280, resizeMode: 'contain', alignSelf: 'center',  marginTop: 8,  marginBottom: 8},
   bottomSection: { marginTop: 20 },
-  status: { fontSize: 18, color: "#ddd", marginBottom: 20 },
+  status: { fontSize: 18, color: "#000", marginBottom: 20 },
   grid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" },
   button: {
     width: "32.5%",
@@ -125,5 +127,5 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  buttonText: { marginTop: 6, fontSize: 18, color: "#a0a0a0" },
+  buttonText: { marginTop: 6, fontSize: 18, color: "#ffffffff" },
 });

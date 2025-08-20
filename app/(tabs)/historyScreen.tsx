@@ -5,7 +5,17 @@ import {
   collection, DocumentData, onSnapshot, query, Timestamp, where
 } from 'firebase/firestore';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, FlatList, Image, NativeModules, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+  ActivityIndicator,
+  FlatList,
+  Image,
+  ImageBackground, // ⬅️ added
+  NativeModules,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
+} from 'react-native';
 import MapView, { Marker } from 'react-native-maps';
 import app, { auth, db } from '../firebaseConfig';
 
@@ -40,9 +50,7 @@ function pickDevHost() {
   const m = url?.match(/\/\/([^/:]+):\d+/);
   return m?.[1] ?? 'localhost';
 }
-
-const API_BASE = __DEV__ ? `http://${pickDevHost()}:8000` : 'https://your-production-domain'
-
+const API_BASE = __DEV__ ? `http://${pickDevHost()}:8000` : 'https://your-production-domain';
 
 // Build a playable URL from Firestore doc data
 function resolveAudioURL(d: any): string | undefined {
@@ -50,9 +58,7 @@ function resolveAudioURL(d: any): string | undefined {
   const filePath = d?.filePath || (d?.fileName ? `uploaded_audios/${d.fileName}` : undefined);
   if (filePath) {
     const bucket = (app.options as any).storageBucket as string; // e.g. frogwatch-backend.appspot.com
-     return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodeURIComponent(
-      filePath
-    )}?alt=media`;
+    return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodeURIComponent(filePath)}?alt=media`;
   }
   // Fallback: older docs had audioURL like '/get-audio/<file>'
   const a = d?.audioURL;
@@ -60,7 +66,6 @@ function resolveAudioURL(d: any): string | undefined {
     if (/^https?:\/\//i.test(a)) return a;
     if (a.startsWith('/get-audio/')) return `${API_BASE}${a}`;
   }
-
   return undefined;
 }
 
@@ -104,10 +109,8 @@ export default function HistoryScreen() {
           const rows: Recording[] = [];
           snap.forEach((doc) => {
             const d = doc.data() as DocumentData;
-
             const ts: Timestamp | undefined = d.timestamp;
-            const timestampISO =
-              ts?.toDate?.()?.toLocaleString?.() ?? d.timestamp_iso ?? undefined;
+            const timestampISO = ts?.toDate?.()?.toLocaleString?.() ?? d.timestamp_iso ?? undefined;
 
             rows.push({
               recordingId: d.recordingId ?? doc.id,
@@ -197,51 +200,79 @@ export default function HistoryScreen() {
     );
   };
 
-  if (loading) return <ActivityIndicator size="large" style={{ marginTop: 50 }} />;
+  if (loading) {
+    return (
+      <ImageBackground
+        source={require('../../assets/images/gradient-background.png')}
+        style={styles.background}
+        resizeMode="cover"
+      >
+        <View style={styles.overlay}>
+          <ActivityIndicator size="large" style={{ marginTop: 50 }} />
+        </View>
+      </ImageBackground>
+    );
+  }
 
   return (
-    <View style={styles.container}>
-      {errorText ? <Text style={styles.error}>{errorText}</Text> : null}
+    <ImageBackground
+      source={require('../../assets/images/gradient-background.png')}
+      style={styles.background}
+      resizeMode="cover"
+    >
+      <View style={styles.overlay}>
+        {errorText ? <Text style={styles.error}>{errorText}</Text> : null}
 
-      <View style={styles.mapContainer}>
-        <MapView ref={mapRef} style={styles.map} initialRegion={initialRegion}>
-          {recordings.map((rec) => (
-            <Marker
-              key={rec.recordingId}
-              coordinate={rec.location}
-              title={rec.predictedSpecies}
-              description={`Confidence: ${rec.confidence ?? 'N/A'}%`}
-              pinColor={rec.recordingId === selectedId ? 'orange' : 'red'}
-              onPress={() => handleSelect(rec)}
-            />
-          ))}
-        </MapView>
+        <View style={styles.mapContainer}>
+          <MapView ref={mapRef} style={styles.map} initialRegion={initialRegion}>
+            {recordings.map((rec) => (
+              <Marker
+                key={rec.recordingId}
+                coordinate={rec.location}
+                title={rec.predictedSpecies}
+                description={`Confidence: ${rec.confidence ?? 'N/A'}%`}
+                pinColor={rec.recordingId === selectedId ? 'orange' : 'red'}
+                onPress={() => handleSelect(rec)}
+              />
+            ))}
+          </MapView>
+        </View>
+
+        <FlatList
+          data={recordings}
+          keyExtractor={(item) => item.recordingId}
+          renderItem={renderItem}
+          contentContainerStyle={styles.listContent}
+          showsVerticalScrollIndicator
+          persistentScrollbar
+          indicatorStyle="white"
+          ListEmptyComponent={
+            <Text style={{ padding: 16, textAlign: 'center', color: '#fff' }}>
+              No recordings yet. Make one from the Record screen!
+            </Text>
+          }
+        />
       </View>
-
-      <FlatList
-        data={recordings}
-        keyExtractor={(item) => item.recordingId}
-        renderItem={renderItem}
-        contentContainerStyle={styles.listContent}
-        showsVerticalScrollIndicator
-        persistentScrollbar
-        indicatorStyle="white"
-        ListEmptyComponent={
-          <Text style={{ padding: 16, textAlign: 'center', color: '#fff' }}>
-            No recordings yet. Make one from the Record screen!
-          </Text>
-        }
-      />
-    </View>
+    </ImageBackground>
   );
 }
 
 const styles = StyleSheet.create({
-  // match RecordScreen look/feel
-  container: { flex: 1, backgroundColor: '#3F5A47', alignItems: 'center' },
+  // background image wrapper (same as other screens)
+  background: { flex: 1, width: '100%', height: '100%' },
+
+  // replaces solid container bg so gradient shows through
+  overlay: { flex: 1, alignItems: 'center' },
 
   // same embed style as RecordScreen
-  mapContainer: { width: 370, height: 300, borderRadius: 20, overflow: 'hidden', marginTop: 40, marginBottom: 15 },
+  mapContainer: {
+    width: 300,
+    height: 270,
+    borderRadius: 10,
+    overflow: 'hidden',
+    marginTop: 60,
+    marginBottom: 15,
+  },
   map: { flex: 1 },
 
   listContent: { padding: 35, paddingBottom: 24, width: '100%' },

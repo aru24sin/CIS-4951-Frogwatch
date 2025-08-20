@@ -8,6 +8,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Image,
+  ImageBackground, // ⬅️ added
   NativeModules,
   ScrollView,
   StyleSheet,
@@ -201,7 +202,7 @@ export default function PredictionScreen() {
       const user = auth.currentUser!;
       const idToken = await user.getIdToken();
 
-      // 2) Load optional profile (to denormalize names into recordings)
+      // 2) Optional profile (to denormalize names into recordings)
       const profile = await getUserProfile(user.uid);
       const firstName = profile?.firstName ?? '';
       const lastName = profile?.lastName ?? '';
@@ -243,35 +244,42 @@ export default function PredictionScreen() {
         throw new Error(`Storage upload failed (${result.status})`);
       }
 
-      // 5) Write Firestore document (denormalized + both confidence forms)
-      // NEW (auto-ID avoids collisions/permission errors)
-const recRef = doc(collection(db, 'recordings')); // auto ID
-const recordingId = recRef.id;
+      // 5) Write Firestore document
+      const recRef = doc(collection(db, 'recordings')); // auto ID
+      const recordingId = recRef.id;
 
-const nowIso = new Date().toISOString();
-const audioURL = `/get-audio/${fileName}`;
+      const nowIso = new Date().toISOString();
+      const audioURL = `/get-audio/${fileName}`;
 
-await setDoc(recRef, {
-  recordingId,
-  createdBy: user.uid,  // must match rules
-  userId: user.uid,     // keep both for convenience
-  predictedSpecies: predictedSpecies || '',
-  species: '',
-  confidenceScore: score / 100,
-  top3,
-  fileName,
-  filePath,
-  contentType,
-  audioURL,
-  location: {
-    lat: Number.isFinite(lat) ? lat : 0,
-    lng: Number.isFinite(lon) ? lon : 0,
-  },
-  status: 'pending_analysis',
-  history: [{ action: 'submitted', actorId: user.uid, timestamp: nowIso }],
-  timestamp: serverTimestamp(),
-  timestamp_iso: nowIso,
-});
+      await setDoc(recRef, {
+        recordingId,
+        createdBy: user.uid,
+        userId: user.uid,
+        predictedSpecies: predictedSpecies || '',
+        species: '',
+        confidenceScore: score / 100,
+        top3,
+        fileName,
+        filePath,
+        contentType,
+        audioURL,
+        location: {
+          lat: Number.isFinite(lat) ? lat : 0,
+          lng: Number.isFinite(lon) ? lon : 0,
+        },
+        status: 'pending_analysis',
+        history: [{ action: 'submitted', actorId: user.uid, timestamp: nowIso }],
+        timestamp: serverTimestamp(),
+        timestamp_iso: nowIso,
+        // optional denormalized fields:
+        submitter: {
+          uid: user.uid,
+          displayName,
+          firstName,
+          lastName,
+          email: userEmail,
+        },
+      });
 
       Alert.alert('Submitted', 'Your recording was saved to Firebase.');
     } catch (err: any) {
@@ -283,92 +291,98 @@ await setDoc(recRef, {
   };
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <Image source={speciesImage} style={styles.image} resizeMode="contain" />
-      <Text style={styles.speciesName}>{predictedSpecies}</Text>
+    <ImageBackground
+      source={require('../../assets/images/gradient-background.png')}
+      style={styles.background}
+      resizeMode="cover"
+    >
+      <ScrollView contentContainerStyle={styles.overlay}>
+        <Image source={speciesImage} style={styles.image} resizeMode="contain" />
+        <Text style={styles.speciesName}>{predictedSpecies}</Text>
 
-      {isFinite(lat) && isFinite(lon) && (
-        <Text style={{ marginBottom: 8, opacity: 0.7 }}>
-          Location used: {lat.toFixed(4)}, {lon.toFixed(4)}
-        </Text>
-      )}
+        {isFinite(lat) && isFinite(lon) && (
+          <Text style={{ marginBottom: 8, opacity: 0.7 }}>
+            Location used: {lat.toFixed(4)}, {lon.toFixed(4)}
+          </Text>
+        )}
 
-      {loading && <Text style={{ marginBottom: 8 }}>Running model…</Text>}
-      {apiError && <Text style={{ color: '#d32f2f', marginBottom: 8 }}>{apiError}</Text>}
+        {loading && <Text style={{ marginBottom: 8 }}>Running model…</Text>}
+        {apiError && <Text style={{ color: '#d32f2f', marginBottom: 8 }}>{apiError}</Text>}
 
-      {top3.length > 0 && (
-        <View style={styles.topBox}>
-          <Text style={styles.topHeader}>Model suggestions</Text>
-          {top3.map((t, i) => (
-            <View key={`${t.species}-${i}`} style={styles.topRow}>
-              <Text style={styles.topRowSpecies}>{i + 1}. {t.species}</Text>
-              <Text style={styles.topRowConf}>{Math.round(t.confidence)}%</Text>
-            </View>
-          ))}
-        </View>
-      )}
+        {top3.length > 0 && (
+          <View style={styles.topBox}>
+            <Text style={styles.topHeader}>Model suggestions</Text>
+            {top3.map((t, i) => (
+              <View key={`${t.species}-${i}`} style={styles.topRow}>
+                <Text style={styles.topRowSpecies}>{i + 1}. {t.species}</Text>
+                <Text style={styles.topRowConf}>{Math.round(t.confidence)}%</Text>
+              </View>
+            ))}
+          </View>
+        )}
 
-      <TouchableOpacity style={styles.actionButton} onPress={handlePlay}>
-        <Text style={styles.actionButtonText}>Play/ Replay Recording</Text>
-      </TouchableOpacity>
+        <TouchableOpacity style={styles.actionButton} onPress={handlePlay}>
+          <Text style={styles.actionButtonText}>Play/ Replay Recording</Text>
+        </TouchableOpacity>
 
-      <TouchableOpacity
-        style={[styles.actionButton, { marginTop: 10 }]}
-        onPress={async () => {
-          if (!audioUri) return;
-          setLoading(true);
-          setApiError(null);
-          try {
-            const res = await callPredict(
-              audioUri,
-              isFinite(lat) ? lat : undefined,
-              isFinite(lon) ? lon : undefined
-            );
-            const pct = toPercent(res.confidence);
-            setPredictedSpecies(res.species || 'Bullfrog');
-            setConfidenceInput(String(Math.round(pct)));
-            setTop3(
-              (res.top3 ?? []).map((t: any) => ({
-                species: t.species ?? t[0],
-                confidence: toPercent(t.confidence ?? t[1]),
-              }))
-            );
-          } catch (e: any) {
-            setApiError(e?.message || 'Prediction failed');
-          } finally {
-            setLoading(false);
-          }
-        }}
-      >
-        <Text style={styles.actionButtonText}>Re-run Model</Text>
-      </TouchableOpacity>
-
-      <Text style={styles.label}>Confirm Species:</Text>
-      <View style={styles.pickerContainer}>
-        <Picker
-          selectedValue={predictedSpecies}
-          onValueChange={(itemValue) => setPredictedSpecies(itemValue)}
-          style={styles.picker}
+        <TouchableOpacity
+          style={[styles.actionButton, { marginTop: 10 }]}
+          onPress={async () => {
+            if (!audioUri) return;
+            setLoading(true);
+            setApiError(null);
+            try {
+              const res = await callPredict(
+                audioUri,
+                isFinite(lat) ? lat : undefined,
+                isFinite(lon) ? lon : undefined
+              );
+              const pct = toPercent(res.confidence);
+              setPredictedSpecies(res.species || 'Bullfrog');
+              setConfidenceInput(String(Math.round(pct)));
+              setTop3(
+                (res.top3 ?? []).map((t: any) => ({
+                  species: t.species ?? t[0],
+                  confidence: toPercent(t.confidence ?? t[1]),
+                }))
+              );
+            } catch (e: any) {
+              setApiError(e?.message || 'Prediction failed');
+            } finally {
+              setLoading(false);
+            }
+          }}
         >
-          {Object.keys(speciesImageMap).map((species) => (
-            <Picker.Item key={species} label={species} value={species} />
-          ))}
-        </Picker>
-      </View>
+          <Text style={styles.actionButtonText}>Re-run Model</Text>
+        </TouchableOpacity>
 
-      <Text style={styles.label}>Confidence (0–100):</Text>
-      <TextInput
-        style={styles.input}
-        value={confidenceInput}
-        onChangeText={setConfidenceInput}
-        placeholder="e.g. 85"
-        keyboardType="number-pad"
-      />
+        <Text style={styles.label}>Confirm Species:</Text>
+        <View style={styles.pickerContainer}>
+          <Picker
+            selectedValue={predictedSpecies}
+            onValueChange={(itemValue) => setPredictedSpecies(itemValue)}
+            style={styles.picker}
+          >
+            {Object.keys(speciesImageMap).map((species) => (
+              <Picker.Item key={species} label={species} value={species} />
+            ))}
+          </Picker>
+        </View>
 
-      <TouchableOpacity style={styles.actionButton} onPress={handleSubmit}>
-        <Text style={styles.actionButtonText}>Submit</Text>
-      </TouchableOpacity>
-    </ScrollView>
+        <Text style={styles.label}>Confidence (0–100):</Text>
+        <TextInput
+          style={styles.input}
+          value={confidenceInput}
+          onChangeText={setConfidenceInput}
+          placeholder="e.g. 85"
+          keyboardType="number-pad"
+        />
+
+        <TouchableOpacity style={styles.actionButton} onPress={handleSubmit}>
+          <Text style={styles.actionButtonText}>Submit</Text>
+        </TouchableOpacity>
+      </ScrollView>
+    </ImageBackground>
   );
 }
 
@@ -409,8 +423,13 @@ async function callPredict(uri: string, lat?: number, lon?: number) {
 
 /* ---------------- styles ---------------- */
 const styles = StyleSheet.create({
-  container: { backgroundColor: '#e6f9e1', alignItems: 'center', padding: 40, flexGrow: 1 },
-  image: { width: 300, height: 200, borderRadius: 16, marginBottom: 10, borderWidth: 2, borderColor: '#66bb6a' },
+  // background image wrapper (same as other screens)
+  background: { flex: 1, width: '100%', height: '100%' },
+
+  // former container; keep padding & alignment but remove solid bg
+  overlay: { alignItems: 'center', padding: 40, flexGrow: 1 },
+
+  image: { width: 300, height: 200, borderRadius: 5, marginBottom: 10, borderWidth: 2, borderColor: '#66bb6a' },
   speciesName: { fontSize: 30, fontWeight: '600', marginBottom: 8 },
   topBox: { width: '100%', backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#c8e6c9', padding: 12, marginBottom: 10 },
   topHeader: { fontWeight: '700', color: '#2e7d32', marginBottom: 6 },

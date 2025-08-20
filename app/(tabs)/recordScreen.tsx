@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   Alert,
   Animated,
+  ImageBackground, // ⬅️ add this
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -26,7 +27,6 @@ export default function RecordScreen() {
   const [timer, setTimer] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Refs to avoid stale state in callbacks
   const recRef = useRef<Audio.Recording | null>(null);
   const stoppingRef = useRef(false);
   const autoStopRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -70,7 +70,6 @@ export default function RecordScreen() {
         playsInSilentModeIOS: true,
       });
 
-      // Reset UI
       setAudioUri(null);
       setTimer(0);
       progressAnim.setValue(0);
@@ -84,22 +83,18 @@ export default function RecordScreen() {
       const { recording } = await Audio.Recording.createAsync(
         Audio.RecordingOptionsPresets.HIGH_QUALITY
       );
-
-      // Keep latest recording in a ref (not state) so callbacks always see it
       recRef.current = recording;
 
-      // Drive timer & progress from recorder’s duration
       recording.setOnRecordingStatusUpdate((st: any) => {
         const dur = Math.max(0, st?.durationMillis ?? 0);
         setTimer(Math.min(MAX_RECORD_SECONDS, Math.floor(dur / 1000)));
         progressAnim.setValue(Math.min(1, dur / MAX_MS));
       });
-      // @ts-ignore present at runtime
+      // @ts-ignore runtime prop
       recording.setProgressUpdateInterval(150);
 
       setIsRecording(true);
 
-      // Hard auto-stop at 10s
       autoStopRef.current = setTimeout(() => {
         stopRecording();
       }, MAX_MS);
@@ -119,20 +114,17 @@ export default function RecordScreen() {
         autoStopRef.current = null;
       }
       setIsRecording(false);
-
-      // Freeze progress where it is
       progressAnim.stopAnimation((v) => progressAnim.setValue(v));
 
       await rec.stopAndUnloadAsync();
       const tmpUri = rec.getURI();
-      recRef.current = null; // release
+      recRef.current = null;
 
       if (!tmpUri) {
         Alert.alert('Recording error', 'No audio URI returned.');
         return;
       }
 
-      // Persist into app documents dir (fallback to tmp if copy fails)
       try {
         const dir = FileSystem.documentDirectory + 'recordings/';
         await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
@@ -206,30 +198,35 @@ export default function RecordScreen() {
     ]);
   };
 
-const upload = () => {
-  if (audioUri && location) {
-    const currentUri = audioUri; // cache before clearing
-    // navigate first
-    router.push({
-      pathname: './predictionScreen',
-      params: {
-        audioUri: currentUri,
-        lat: String(location.latitude),
-        lon: String(location.longitude),
-      },
-    });
-    // then reset local UI so coming back is clean
-    setAudioUri(null);
-    setIsRecording(false);
-    setTimer(0);
-    progressAnim.setValue(0);
-    if (sound) { sound.unloadAsync().catch(() => {}); setSound(null); }
-  }
-};
-
+  const upload = () => {
+    if (audioUri && location) {
+      const currentUri = audioUri;
+      router.push({
+        pathname: './predictionScreen',
+        params: {
+          audioUri: currentUri,
+          lat: String(location.latitude),
+          lon: String(location.longitude),
+        },
+      });
+      setAudioUri(null);
+      setIsRecording(false);
+      setTimer(0);
+      progressAnim.setValue(0);
+      if (sound) { sound.unloadAsync().catch(() => {}); setSound(null); }
+    }
+  };
 
   if (isLoading || !location) {
-    return <ActivityIndicator size="large" style={{ marginTop: 50 }} />;
+    return (
+      <ImageBackground
+        source={require('../../assets/images/gradient-background.png')}
+        style={styles.background}
+        resizeMode="cover"
+      >
+        <ActivityIndicator size="large" style={{ marginTop: 50 }} />
+      </ImageBackground>
+    );
   }
 
   const progressBarWidth = progressAnim.interpolate({
@@ -238,68 +235,79 @@ const upload = () => {
   });
 
   return (
-    <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.push('./homeScreen')}>
-          <Ionicons name="arrow-back" size={32} color="#222" style={styles.icon} />
-        </TouchableOpacity>
-
-        <TouchableOpacity onPress={() => Alert.alert('Menu pressed')}>
-          <Ionicons name="menu" size={32} color="#222" style={styles.icon} />
-        </TouchableOpacity>
-      </View>
-
-      <Text style={styles.title}>Ready to record...</Text>
-
-      {/* Map */}
-      <View style={styles.mapContainer}>
-        <MapView
-          style={styles.map}
-          region={{
-            latitude: location.latitude,
-            longitude: location.longitude,
-            latitudeDelta: 0.01,
-            longitudeDelta: 0.01,
-          }}
-        >
-          <Marker coordinate={location} />
-        </MapView>
-      </View>
-
-      {/* Progress */}
-      <View style={styles.progressBarContainer}>
-        <Animated.View style={[styles.progressBar, { width: progressBarWidth }]} />
-      </View>
-      <Text style={styles.timerText}>{timer}s</Text>
-
-      {/* Record Button (toggles start/stop) */}
-      {!audioUri && (
-        <TouchableOpacity style={styles.recordButton} onPress={toggleRecord}>
-          <View style={[styles.innerCircle, isRecording && { backgroundColor: '#c62828' }]} />
-        </TouchableOpacity>
-      )}
-
-      {/* Actions after recording */}
-      {audioUri && !isRecording && (
-        <View style={styles.actions}>
-          <TouchableOpacity style={styles.actionButton} onPress={playAudio}>
-            <Text style={styles.actionText}>Play/Replay Recording</Text>
+    <ImageBackground
+      source={require('../../assets/images/gradient-background.png')}
+      style={styles.background}
+      resizeMode="cover"
+    >
+      <View style={styles.overlay}>
+        {/* Header */}
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => router.push('./homeScreen')}>
+            <Ionicons name="arrow-back" size={32} color="#222" style={styles.icon} />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.actionButton} onPress={reRecord}>
-            <Text style={styles.actionText}>Re-record</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.actionButton} onPress={upload}>
-            <Text style={styles.actionText}>Analyze Recording</Text>
+
+          <TouchableOpacity onPress={() => Alert.alert('Menu pressed')}>
+            <Ionicons name="menu" size={32} color="#222" style={styles.icon} />
           </TouchableOpacity>
         </View>
-      )}
-    </View>
+
+        <Text style={styles.title}>Ready to record...</Text>
+
+        {/* Map */}
+        <View style={styles.mapContainer}>
+          <MapView
+            style={styles.map}
+            region={{
+              latitude: location.latitude,
+              longitude: location.longitude,
+              latitudeDelta: 0.01,
+              longitudeDelta: 0.01,
+            }}
+          >
+            <Marker coordinate={location} />
+          </MapView>
+        </View>
+
+        {/* Progress */}
+        <View style={styles.progressBarContainer}>
+          <Animated.View style={[styles.progressBar, { width: progressBarWidth }]} />
+        </View>
+        <Text style={styles.timerText}>{timer}s</Text>
+
+        {/* Record Button */}
+        {!audioUri && (
+          <TouchableOpacity style={styles.recordButton} onPress={toggleRecord}>
+            <View style={[styles.innerCircle, isRecording && { backgroundColor: '#c62828' }]} />
+          </TouchableOpacity>
+        )}
+
+        {/* Actions after recording */}
+        {audioUri && !isRecording && (
+          <View style={styles.actions}>
+            <TouchableOpacity style={styles.actionButton} onPress={playAudio}>
+              <Text style={styles.actionText}>Play/Replay Recording</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.actionButton} onPress={reRecord}>
+              <Text style={styles.actionText}>Re-record</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.actionButton} onPress={upload}>
+              <Text style={styles.actionText}>Analyze Recording</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </View>
+    </ImageBackground>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#3F5A47', alignItems: 'center' },
+  // background image wrapper
+  background: { flex: 1, width: '100%', height: '100%' },
+
+  // former container (no solid bg so gradient shows)
+  overlay: { flex: 1, alignItems: 'center' },
+
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -308,18 +316,21 @@ const styles = StyleSheet.create({
     marginTop: 50,
   },
   icon: { backgroundColor: '#00000020', padding: 12, borderRadius: 50 },
-  title: { fontSize: 24, color: 'white', marginBottom: 20, alignSelf: 'flex-start', marginLeft: 20 },
+  title: { fontSize: 24, color: 'black', marginBottom: 20, alignSelf: 'flex-start', marginLeft: 20 },
+
   mapContainer: { width: 320, height: 250, borderRadius: 20, overflow: 'hidden' },
   map: { flex: 1 },
+
   progressBarContainer: {
-    width: '80%',
-    height: 14,
+    width: '90%',
+    height: 18,
     backgroundColor: '#2D3E32',
     borderRadius: 7,
     marginTop: 40,
   },
   progressBar: { height: 14, backgroundColor: '#ef6d17ff', borderRadius: 7 },
-  timerText: { fontSize: 22, color: 'white', marginTop: 10 },
+  timerText: { fontSize: 22, color: 'black', marginTop: 10 },
+
   recordButton: {
     marginTop: 30,
     width: 90,
@@ -330,6 +341,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   innerCircle: { width: 70, height: 70, borderRadius: 40, backgroundColor: 'red' },
+
   actions: { marginTop: 20, width: '100%', alignItems: 'center' },
   actionButton: {
     backgroundColor: '#638B6F',
