@@ -7,4 +7,8 @@ module.exports = defineConfig([
   {
     ignores: ['dist/*'],
   },
+  { "plugins": ["react-hooks"], "rules": {
+    "react-hooks/rules-of-hooks": "error",
+    "react-hooks/exhaustive-deps": "warn"
+}}
 ]);

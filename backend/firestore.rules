@@ -1,0 +1,31 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Users can only access their own user doc
+    match /users/{uid} {
+      allow create: if request.auth != null && request.auth.uid == uid;
+      allow read, update, delete: if request.auth != null && request.auth.uid == uid;
+    }
+
+    // Recordings owned by the creator
+    match /recordings/{recId} {
+      function authed()      { return request.auth != null; }
+      function ownerNew()    { return authed() && request.resource.data.createdBy == request.auth.uid; }
+      function ownerExisting(){ return authed() && resource.data.createdBy == request.auth.uid; }
+
+      allow create: if ownerNew();
+      allow read:   if ownerExisting();
+      // keep createdBy immutable
+      allow update: if ownerExisting()
+                    && request.resource.data.createdBy == resource.data.createdBy;
+      allow delete: if ownerExisting();
+    }
+
+    // Feedback
+    match /feedback/{doc} {
+      allow create: if request.auth != null;
+      allow read, update, delete: if request.auth != null && request.auth.token.admin == true;
+    }
+  }
+}

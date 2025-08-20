@@ -1,151 +1,158 @@
 // app/(tabs)/historyScreen.tsx
 import { Audio } from 'expo-av';
+import { onAuthStateChanged } from 'firebase/auth';
+import {
+  collection,
+  DocumentData,
+  onSnapshot,
+  query,
+  Timestamp,
+  where,
+} from 'firebase/firestore';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
   Image,
-  NativeModules,
-  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
 import MapView, { Marker } from 'react-native-maps';
-
-// Firebase
-import { signInWithEmailAndPassword } from 'firebase/auth';
-import {
-  collection,
-  onSnapshot,
-  orderBy,
-  query,
-  Timestamp,
-  where,
-} from 'firebase/firestore';
 import { auth, db } from '../firebaseConfig';
 
-// ------- dev sign-in (optional; remove if you already auth elsewhere) -------
-const DEV_EMAIL = process.env.EXPO_PUBLIC_DEV_EMAIL || 'vnitu393@gmail.com';
-const DEV_PASSWORD = process.env.EXPO_PUBLIC_DEV_PASSWORD || 'hello123';
-
-// ------- dynamic API base  -------
-function pickDevHost(): string {
-  const hostUri =
-    (global as any)?.expo?.hostUri ??
-    (global as any)?.expoGoConfig?.hostUri ??
-    (NativeModules as any)?.SourceCode?.scriptURL?.replace(/^.*\/\/([^:/]+).*$/, '$1') ??
-    '';
-  if (hostUri) {
-    const h = String(hostUri).split(':')[0];
-    if (h) return h;
-  }
-  const scriptURL: string | undefined = (NativeModules as any)?.SourceCode?.scriptURL;
-  const m = scriptURL?.match(/\/\/([^/:]+):\d+/);
-  return m?.[1] ?? 'localhost';
-}
-const API_BASE =
-  process.env.EXPO_PUBLIC_API_BASE || (__DEV__ ? `http://${pickDevHost()}:8000` : 'https://your-production-domain');
-
-// ------- types -------
-type UIRecording = {
+type Recording = {
   recordingId: string;
   userId: string;
   predictedSpecies: string;
-  species: string; // confirmed (can be '')
-  confidencePercent?: number; // 0..100
-  audioURL: string; // fully-qualified
+  species: string;
+  audioURL?: string;
   location: { latitude: number; longitude: number };
   status: string;
-  timestampText: string;
-  displayName?: string;
-  firstName?: string;
-  lastName?: string;
+  timestampISO?: string;
+  confidence?: number; // 0–100
 };
 
 const speciesImageMap: Record<string, any> = {
-  'Bullfrog': require('../../assets/frogs/bullfrog.png'),
-  'Green Frog': require('../../assets/frogs/treefrog.png'),
-  'Northern Spring Peeper': require('../../assets/frogs/spring_peeper.png'),
+  'American Bullfrog': require('../../assets/frogs/bullfrog.png'),
+  'Green Treefrog': require('../../assets/frogs/treefrog.png'),
+  'Spring Peeper': require('../../assets/frogs/spring_peeper.png'),
   'Northern Leopard Frog': require('../../assets/frogs/northern_leopard.png'),
+  'Gray Treefrog': require('../../assets/frogs/gray_treefrog.png'),
   'Eastern Gray Treefrog': require('../../assets/frogs/gray_treefrog.png'),
-  'Wood Frog': require('../../assets/frogs/wood_frog.png'),
-  'American Toad': require('../../assets/frogs/american_toad.png'),
-  'Midland Chorus Frog': require('../../assets/frogs/midland_chorus.png'),
 };
 const placeholderImage = require('../../assets/frogs/placeholder.png');
 
 export default function HistoryScreen() {
-  const [items, setItems] = useState<UIRecording[]>([]);
+  const [recordings, setRecordings] = useState<Recording[]>([]);
   const [loading, setLoading] = useState(true);
+  const [errorText, setErrorText] = useState<string | null>(null);
   const [sound, setSound] = useState<Audio.Sound | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const mapRef = useRef<MapView>(null);
 
+  const initialRegion = useMemo(() => {
+    const first = recordings[0];
+    return {
+      latitude: first?.location.latitude ?? 42.3314,
+      longitude: first?.location.longitude ?? -83.0458,
+      latitudeDelta: 5,
+      longitudeDelta: 5,
+    };
+  }, [recordings]);
+
   useEffect(() => {
-    (async () => {
-      // dev sign-in (remove if you already login earlier in the app)
-      if (!auth.currentUser) {
-        try {
-          await signInWithEmailAndPassword(auth, DEV_EMAIL, DEV_PASSWORD);
-        } catch {
-          // ignore if it fails and user is already logged in another way
-        }
-      }
-      const uid = auth.currentUser?.uid;
-      if (!uid) {
+    let offAuth: (() => void) | undefined;
+    let offSnap: (() => void) | undefined;
+
+    offAuth = onAuthStateChanged(auth, (user) => {
+      if (!user) {
+        console.log('[history] no user, clearing list');
+        setRecordings([]);
         setLoading(false);
         return;
       }
 
-      // listen to this user's recordings newest first
+      setLoading(true);
+      setErrorText(null);
+      console.log('[history] querying for uid =', user.uid);
+
+      // IMPORTANT: match your write code — make sure every doc has userId = uid
       const q = query(
         collection(db, 'recordings'),
-        where('userId', '==', uid),
-        orderBy('timestamp', 'desc')
+        where('userId', '==', user.uid)
       );
 
-      const unsub = onSnapshot(q, (snap) => {
-        const mapped = snap.docs.map((d) => toUI(d.id, d.data()));
-        setItems(mapped);
-        if (!selectedId && mapped[0]) setSelectedId(mapped[0].recordingId);
-        setLoading(false);
-      }, (err) => {
-        console.warn('History onSnapshot error', err);
-        setLoading(false);
-      });
+      offSnap = onSnapshot(
+        q,
+        (snap) => {
+          const rows: Recording[] = [];
+          snap.forEach((doc) => {
+            const d = doc.data() as DocumentData;
 
-      return () => unsub();
-    })();
+            const ts: Timestamp | undefined = d.timestamp;
+            const timestampISO =
+              ts?.toDate?.()?.toLocaleString?.() ??
+              d.timestamp_iso ??
+              undefined;
+
+            rows.push({
+              recordingId: d.recordingId ?? doc.id,
+              userId: d.userId ?? '',
+              predictedSpecies: d.predictedSpecies ?? '',
+              species: d.species ?? '',
+              audioURL: d.audioURL,
+              location: {
+                latitude: Number(d?.location?.lat) || 0,
+                longitude: Number(d?.location?.lng) || 0,
+              },
+              status: d.status ?? 'pending_analysis',
+              timestampISO,
+              confidence:
+                typeof d.confidenceScore === 'number'
+                  ? Math.round(d.confidenceScore * 100)
+                  : undefined,
+            });
+          });
+
+          console.log(`[history] got ${rows.length} rec(s)`);
+          setRecordings(rows);
+          setLoading(false);
+        },
+        (err) => {
+          console.warn('[history] snapshot error:', err);
+          setErrorText(err?.message || String(err));
+          setRecordings([]);
+          setLoading(false);
+        }
+      );
+    });
 
     return () => {
-      if (sound) sound.unloadAsync().catch(() => {});
+      offSnap?.();
+      offAuth?.();
+      sound?.unloadAsync().catch(() => {});
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const speciesCounts = useMemo(() => {
-    const m = new Map<string, number>();
-    for (const r of items) {
-      const key = r.species || r.predictedSpecies || 'Unknown';
-      m.set(key, (m.get(key) ?? 0) + 1);
-    }
-    return Array.from(m.entries()).sort((a, b) => b[1] - a[1]);
-  }, [items]);
-
-  const handlePlay = async (uri: string) => {
+  const handlePlay = async (uri?: string) => {
+    if (!uri) return;
     try {
-      if (sound) await sound.unloadAsync();
-      const { sound: s } = await Audio.Sound.createAsync({ uri });
-      setSound(s);
-      await s.playAsync();
+      if (sound) {
+        await sound.unloadAsync();
+        setSound(null);
+      }
+      const { sound: newSound } = await Audio.Sound.createAsync({ uri });
+      setSound(newSound);
+      await newSound.playAsync();
     } catch (e) {
-      console.error('play failed', e);
+      console.error('Audio play error:', e);
     }
   };
 
-  const selectCard = (rec: UIRecording) => {
+  const handleSelect = (rec: Recording) => {
     setSelectedId(rec.recordingId);
     mapRef.current?.animateToRegion({
       ...rec.location,
@@ -154,135 +161,67 @@ export default function HistoryScreen() {
     });
   };
 
+  const renderItem = ({ item }: { item: Recording }) => {
+    const img = speciesImageMap[item.predictedSpecies] || placeholderImage;
+    return (
+      <TouchableOpacity onPress={() => handleSelect(item)}>
+        <View
+          style={[
+            styles.card,
+            selectedId === item.recordingId && { borderColor: '#FF9500', borderWidth: 2 },
+          ]}
+        >
+          <Image source={img} style={styles.image} />
+          <Text style={styles.title}>{item.predictedSpecies || '(Unknown species)'}</Text>
+          <Text>Confidence: {item.confidence ?? 'N/A'}%</Text>
+          <Text>Status: {item.status}</Text>
+          {!!item.timestampISO && <Text>Time: {item.timestampISO}</Text>}
+          <Text>
+            Location: {item.location.latitude.toFixed(4)}, {item.location.longitude.toFixed(4)}
+          </Text>
+          <TouchableOpacity style={styles.button} onPress={() => handlePlay(item.audioURL)}>
+            <Text style={styles.buttonText}>Play / Replay</Text>
+          </TouchableOpacity>
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
   if (loading) return <ActivityIndicator size="large" style={{ marginTop: 50 }} />;
 
-  const first = items[0];
   return (
     <View style={{ flex: 1 }}>
-      <MapView
-        ref={mapRef}
-        style={{ height: 300 }}
-        initialRegion={{
-          latitude: first?.location.latitude ?? 0,
-          longitude: first?.location.longitude ?? 0,
-          latitudeDelta: 5,
-          longitudeDelta: 5,
-        }}
-      >
-        {items.map((r) => (
+      {errorText ? (
+        <Text style={{ padding: 12, color: '#c00' }}>{errorText}</Text>
+      ) : null}
+
+      <MapView ref={mapRef} style={{ height: 300 }} initialRegion={initialRegion}>
+        {recordings.map((rec) => (
           <Marker
-            key={r.recordingId}
-            coordinate={r.location}
-            title={r.species || r.predictedSpecies}
-            description={`Confidence: ${r.confidencePercent ?? 'N/A'}%`}
-            pinColor={r.recordingId === selectedId ? 'orange' : 'red'}
+            key={rec.recordingId}
+            coordinate={rec.location}
+            title={rec.predictedSpecies}
+            description={`Confidence: ${rec.confidence ?? 'N/A'}%`}
+            pinColor={rec.recordingId === selectedId ? 'orange' : 'red'}
           />
         ))}
       </MapView>
 
-      {speciesCounts.length > 0 && (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ paddingHorizontal: 10, paddingVertical: 8 }}
-        >
-          {speciesCounts.map(([name, count]) => (
-            <View key={name} style={styles.chip}>
-              <Text style={styles.chipText}>{name} • {count}</Text>
-            </View>
-          ))}
-        </ScrollView>
-      )}
-
       <FlatList
-        data={items}
-        keyExtractor={(i) => i.recordingId}
+        data={recordings}
+        keyExtractor={(item) => item.recordingId}
+        renderItem={renderItem}
         contentContainerStyle={{ padding: 10 }}
-        renderItem={({ item }) => {
-          const img = speciesImageMap[item.predictedSpecies] ?? placeholderImage;
-          return (
-            <TouchableOpacity onPress={() => selectCard(item)}>
-              <View style={[
-                styles.card,
-                selectedId === item.recordingId && { borderColor: '#FF9500', borderWidth: 2 },
-              ]}>
-                <Image source={img} style={styles.image} />
-                <Text style={styles.title}>
-                  {item.species || item.predictedSpecies}
-                  {item.species && item.species !== item.predictedSpecies
-                    ? ` (model: ${item.predictedSpecies})` : ''}
-                </Text>
-                <Text>Confidence: {item.confidencePercent ?? 'N/A'}%</Text>
-                <Text>Status: {item.status || 'pending'}</Text>
-                <Text>Time: {item.timestampText}</Text>
-                <Text>
-                  Location: {item.location.latitude.toFixed(4)}, {item.location.longitude.toFixed(4)}
-                </Text>
-                {!!(item.firstName || item.lastName || item.displayName) && (
-                  <Text>By: {`${item.firstName ?? ''} ${item.lastName ?? ''}`.trim() || item.displayName}</Text>
-                )}
-                <TouchableOpacity style={styles.button} onPress={() => handlePlay(item.audioURL)}>
-                  <Text style={styles.buttonText}>Play / Replay</Text>
-                </TouchableOpacity>
-              </View>
-            </TouchableOpacity>
-          );
-        }}
+        ListEmptyComponent={
+          <Text style={{ padding: 16, textAlign: 'center' }}>
+            No recordings yet. Make one from the Record screen!
+          </Text>
+        }
       />
     </View>
   );
 }
 
-/* --------------- mapping helpers  --------------- */
-function toUI(id: string, data: any): UIRecording {
-  const lat =
-    data?.location?.lat ??
-    data?.location?.latitude ?? 0;
-  const lng =
-    data?.location?.lng ??
-    data?.location?.longitude ?? 0;
-
-  // Firestore serverTimestamp comes back as Timestamp or null until resolved
-  let timestampText = '';
-  const ts = data?.timestamp;
-  if (ts instanceof Timestamp) {
-    timestampText = ts.toDate().toLocaleString();
-  } else if (typeof data?.timestamp_iso === 'string') {
-    timestampText = new Date(data.timestamp_iso).toLocaleString();
-  } else {
-    timestampText = new Date().toLocaleString();
-  }
-
-  const confidencePercent =
-    typeof data?.confidencePercent === 'number'
-      ? Math.round(data.confidencePercent)
-      : typeof data?.confidenceScore === 'number'
-        ? Math.round(data.confidenceScore * 100)
-        : undefined;
-
-  // audioURL: if it’s backend path (“/get-audio/...”), prefix with API_BASE
-  let audioURL: string = data?.audioURL || '';
-  if (audioURL && audioURL.startsWith('/')) {
-    audioURL = `${API_BASE}${audioURL}`;
-  }
-
-  return {
-    recordingId: data?.recordingId || id,
-    userId: data?.userId || data?.createdBy || '',
-    predictedSpecies: data?.predictedSpecies || '',
-    species: data?.species || '',
-    confidencePercent,
-    audioURL,
-    location: { latitude: Number(lat) || 0, longitude: Number(lng) || 0 },
-    status: data?.status || 'pending_analysis',
-    timestampText,
-    displayName: data?.displayName,
-    firstName: data?.firstName,
-    lastName: data?.lastName,
-  };
-}
-
-/* ----------------------------- styles ----------------------------- */
 const styles = StyleSheet.create({
   card: {
     backgroundColor: '#f0f8ff',
@@ -302,14 +241,4 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   buttonText: { color: '#fff', fontWeight: 'bold' },
-  chip: {
-    backgroundColor: '#E8F5E9',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 16,
-    marginRight: 8,
-    borderWidth: 1,
-    borderColor: '#C8E6C9',
-  },
-  chipText: { color: '#2E7D32', fontWeight: '600' },
 });

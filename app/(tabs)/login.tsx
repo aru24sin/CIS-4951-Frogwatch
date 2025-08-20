@@ -48,38 +48,51 @@ export default function LoginScreen() {
     }
   };
 
-  const handleForgot = async () => {
-    setFpBusy(true);
-    try {
-      const verify = httpsCallable(functions, 'verifyAnswers');
-      const res: any = await verify({
-        email: fpEmail.trim().toLowerCase(),
-        answers: [ans1.trim(), ans2.trim(), ans3.trim()],
-      });
+const handleForgot = async () => {
+  // ==== simple required-fields check ====
+  if (
+    !fpEmail.trim() ||
+    !ans1.trim() ||
+    !ans2.trim() ||
+    !ans3.trim()
+  ) {
+    Alert.alert('Please fill out all fields.');
+    return;
+  }
+  // ======================================
 
-      if (res?.data?.allow) {
-        try {
-          await sendPasswordResetEmail(auth, fpEmail.trim().toLowerCase());
-        } catch {}
-      }
+  setFpBusy(true);
+  try {
+    const verify = httpsCallable(functions, 'verifyAnswers');
+    const res: any = await verify({
+      email: fpEmail.trim().toLowerCase(),
+      answers: [ans1.trim(), ans2.trim(), ans3.trim()],
+    });
 
-      Alert.alert(
-        'Check your email',
-        "If an account exists for that username, you will receive a password reset email."
-      );
-      setForgotOpen(false);
-      setFpEmail(''); setAns1(''); setAns2(''); setAns3('');
-    } catch (err) {
-      console.log('Forgot flow error:', err);
-      Alert.alert(
-        'Check your email',
-        "If an account exists for that username, you will receive a password reset email."
-      );
-      setForgotOpen(false);
-    } finally {
-      setFpBusy(false);
+    if (res?.data?.allow) {
+      try {
+        await sendPasswordResetEmail(auth, fpEmail.trim().toLowerCase());
+      } catch {}
     }
-  };
+
+    Alert.alert(
+      'Check your email',
+      "If an account exists for that username, you will receive a password reset email."
+    );
+    setForgotOpen(false);
+    setFpEmail(''); setAns1(''); setAns2(''); setAns3('');
+  } catch (err) {
+    console.log('Forgot flow error:', err);
+    Alert.alert(
+      'Check your email',
+      "If an account exists for that username, you will receive a password reset email."
+    );
+    setForgotOpen(false);
+  } finally {
+    setFpBusy(false);
+  }
+};
+
 
   return (
     <ImageBackground
@@ -129,7 +142,7 @@ export default function LoginScreen() {
 
             <TextInput
               placeholder="Email"
-              placeholderTextColor="#f1f1f1ff"
+              placeholderTextColor="#fafafaff"
               value={fpEmail}
               onChangeText={setFpEmail}
               style={styles.modalInput}
@@ -160,7 +173,7 @@ export default function LoginScreen() {
 
             <View style={styles.modalButtons}>
               <TouchableOpacity
-                style={[styles.modalButton, { backgroundColor: '#1f2b20' }]}
+                style={[styles.modalButton, { backgroundColor: '#cdddcfff' }]}
                 onPress={handleForgot}
                 disabled={fpBusy}
               >
@@ -184,7 +197,7 @@ export default function LoginScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, justifyContent: 'center', paddingHorizontal: 24 },
-  title: { fontSize: 68, fontWeight: '400', color: '#000', marginBottom: 20, marginLeft: 10 },
+  title: { fontSize: 40, fontWeight: '400', color: '#000', marginBottom: 20, marginLeft: 120 },
   input: {
     backgroundColor: 'rgba(0,0,0,0.3)',
     padding: 18,
@@ -212,7 +225,7 @@ const styles = StyleSheet.create({
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.3)', justifyContent: 'center', padding: 24 },
   modalCard: { backgroundColor: '#252c25ff', borderRadius: 16, padding: 20 },
   modalTitle: { fontSize: 20, fontWeight: '700', color: '#3ab132ff', marginBottom: 12 },
-  modalInput: { backgroundColor: '#151515ff', padding: 16, borderRadius: 25, marginBottom: 16, fontSize: 16, color: '#000' },
+  modalInput: { backgroundColor: '#151515ff', padding: 16, borderRadius: 25, marginBottom: 16, fontSize: 16, color: '#fff' },
   modalButtons: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 12 },
   modalButton: {
     flex: 1,
