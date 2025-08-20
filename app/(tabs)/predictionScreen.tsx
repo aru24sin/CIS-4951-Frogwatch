@@ -19,14 +19,10 @@ import {
 
 // Firebase
 import { signInWithEmailAndPassword } from 'firebase/auth';
-import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
+import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
 import app, { auth, db } from '../firebaseConfig';
 
 type TopItem = { species: string; confidence: number };
-
-// dev credentials
-const EMAIL = 'vnitu393@gmail.com';            
-const PASSWORD = 'hello123';    
 
 const speciesImageMap: Record<string, any> = {
   'Bullfrog': require('../../assets/frogs/bullfrog.png'),
@@ -36,27 +32,24 @@ const speciesImageMap: Record<string, any> = {
   'Eastern Gray Treefrog': require('../../assets/frogs/gray_treefrog.png'),
   'Wood Frog': require('../../assets/frogs/wood_frog.png'),
   'American Toad': require('../../assets/frogs/american_toad.png'),
-  'Midland Chorus Frog': require('../../assets/frogs/midland_chorus.png')
+  'Midland Chorus Frog': require('../../assets/frogs/midland_chorus.png'),
 };
 const placeholderImage = require('../../assets/frogs/placeholder.png');
 
-//dynamic API base for dev 
-const DEV_HOST_OVERRIDE = ''; 
+/* ---------------- dynamic API base (dev) ---------------- */
+const DEV_HOST_OVERRIDE = ''; // leave '' to auto-detect on LAN
 
 function pickDevHost() {
   if (DEV_HOST_OVERRIDE) return DEV_HOST_OVERRIDE;
-
   const hostUri =
     (Constants as any)?.expoGoConfig?.hostUri ??
     (Constants as any)?.expoGoConfig?.debuggerHost ??
     (Constants as any)?.expoConfig?.hostUri ??
     '';
-
   if (hostUri) {
     const h = String(hostUri).split(':')[0];
     if (h) return h;
   }
-
   const scriptURL: string | undefined = (NativeModules as any)?.SourceCode?.scriptURL;
   const m = scriptURL?.match(/\/\/([^/:]+):\d+/);
   return m?.[1] ?? 'localhost';
@@ -66,12 +59,7 @@ export const API_BASE = __DEV__
   ? `http://${pickDevHost()}:8000`
   : 'https://your-production-domain';
 
-console.log('[api] scriptURL =', (NativeModules as any)?.SourceCode?.scriptURL);
-console.log('[api] hostUri   =', (Constants as any)?.expoGoConfig?.hostUri || (Constants as any)?.expoConfig?.hostUri);
-console.log('[api] API_BASE  =', API_BASE);
-
-
-//helpers 
+/* ---------------- helpers ---------------- */
 function guessMime(uri: string) {
   const lower = uri.toLowerCase();
   if (lower.endsWith('.wav')) return 'audio/wav';
@@ -84,6 +72,29 @@ function toPercent(confMaybe01: number) {
 }
 function makeUniqueFileName(ext: string) {
   return `rec-${Date.now()}-${Math.floor(Math.random() * 1e6)}${ext}`;
+}
+
+/** Try to get a profile from Firestore users/{uid} and return name fields */
+async function getUserProfile(uid: string) {
+  try {
+    const snap = await getDoc(doc(db, 'users', uid));
+    if (snap.exists()) return snap.data() as any;
+  } catch {}
+  return null;
+}
+
+/** Dev-only auto sign-in if no user is present */
+async function ensureSignedIn() {
+  if (auth.currentUser) return;
+  if (!__DEV__) {
+    throw new Error('Not signed in. Please log in.');
+  }
+  const email = process.env.EXPO_PUBLIC_DEV_EMAIL;
+  const password = process.env.EXPO_PUBLIC_DEV_PASSWORD;
+  if (!email || !password) {
+    throw new Error('No dev credentials. Set EXPO_PUBLIC_DEV_EMAIL / EXPO_PUBLIC_DEV_PASSWORD.');
+  }
+  await signInWithEmailAndPassword(auth, email, password);
 }
 
 export default function PredictionScreen() {
@@ -107,6 +118,7 @@ export default function PredictionScreen() {
     };
   }, [sound]);
 
+  // Run the model once on mount (if we have an audio URI)
   useEffect(() => {
     (async () => {
       if (!audioUri) return;
@@ -120,15 +132,21 @@ export default function PredictionScreen() {
       setLoading(true);
       setApiError(null);
       try {
-        const res = await callPredict(audioUri, isFinite(lat) ? lat : undefined, isFinite(lon) ? lon : undefined);
+        const res = await callPredict(
+          audioUri,
+          isFinite(lat) ? lat : undefined,
+          isFinite(lon) ? lon : undefined
+        );
         const pct = toPercent(res.confidence);
         if (!mountedRef.current) return;
         setPredictedSpecies(res.species || 'Bullfrog');
         setConfidenceInput(String(Math.round(pct)));
-        setTop3((res.top3 ?? []).map((t: any) => ({
-          species: t.species ?? t[0],
-          confidence: toPercent(t.confidence ?? t[1]),
-        })));
+        setTop3(
+          (res.top3 ?? []).map((t: any) => ({
+            species: t.species ?? t[0],
+            confidence: toPercent(t.confidence ?? t[1]),
+          }))
+        );
       } catch (e: any) {
         if (!mountedRef.current) return;
         setApiError(e?.message || 'Prediction failed');
@@ -163,7 +181,7 @@ export default function PredictionScreen() {
     }
   };
 
-  //SUBMIT: sign in-->upload via REST-->write Firestore
+  /** SUBMIT: ensure auth -> upload to Storage (REST) -> write Firestore */
   const handleSubmit = async () => {
     const score = parseInt(confidenceInput, 10);
     if (Number.isNaN(score) || score < 0 || score > 100) {
@@ -178,19 +196,26 @@ export default function PredictionScreen() {
     try {
       setLoading(true);
 
-      if (!auth.currentUser) {
-        await signInWithEmailAndPassword(auth, EMAIL, PASSWORD);
-      }
+      // 1) Ensure we have a user
+      await ensureSignedIn();
       const user = auth.currentUser!;
       const idToken = await user.getIdToken();
 
+      // 2) Load optional profile (to denormalize names into recordings)
+      const profile = await getUserProfile(user.uid);
+      const firstName = profile?.firstName ?? '';
+      const lastName = profile?.lastName ?? '';
+      const displayName =
+        profile?.displayName ?? user.displayName ?? `${firstName || ''} ${lastName || ''}`.trim();
+      const userEmail = user.email ?? '';
+
+      // 3) Verify file and derive content type + extension
       const info = await FileSystem.getInfoAsync(audioUri);
       if (!info.exists) {
         Alert.alert('Audio missing', 'The recorded file is no longer available. Please re-record.');
         return;
       }
-
-      const contentType = guessMime(audioUri); 
+      const contentType = guessMime(audioUri);
       const ext =
         contentType === 'audio/wav' ? '.wav' :
         contentType === 'audio/m4a' ? '.m4a' :
@@ -199,8 +224,9 @@ export default function PredictionScreen() {
       const fileName = makeUniqueFileName(ext);
       const filePath = `uploaded_audios/${fileName}`;
 
-      //Upload to Firebase Storage via REST (
-      const bucket = (app.options as any).storageBucket as string; // e.g. 'frogwatch-backend.appspot.com'
+      // 4) Upload to Firebase Storage via REST (works on Expo)
+      const bucket = (app.options as any).storageBucket as string | undefined;
+      if (!bucket) throw new Error('Missing Firebase storage bucket in config.');
       const uploadUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o?name=${encodeURIComponent(filePath)}`;
 
       const result = await FileSystem.uploadAsync(uploadUrl, audioUri, {
@@ -216,30 +242,49 @@ export default function PredictionScreen() {
         console.log('Storage upload failed:', result.status, result.body?.slice?.(0, 400));
         throw new Error(`Storage upload failed (${result.status})`);
       }
-      console.log('Storage REST upload ok:', result.status);
 
+      // 5) Write Firestore document (denormalized + both confidence forms)
       const recordingId = `rec_${fileName.slice(0, 8)}`;
       const nowIso = new Date().toISOString();
-      const audioURL = `/get-audio/${fileName}`; 
+      const audioURL = `/get-audio/${fileName}`; // History will prefix with API_BASE
 
       await setDoc(doc(db, 'recordings', recordingId), {
         recordingId,
-        createdBy: user.uid,          
-        userId: user.uid,             
+        userId: user.uid,
+        createdBy: user.uid,
+
+        // model output + user confirmation
         predictedSpecies: predictedSpecies || '',
         species: '',
-        confidenceScore: score / 100, 
+
+        // keep both forms for convenience
+        confidenceScore: score / 100,     // 0..1
+        confidencePercent: score,         // 0..100
+
         top3,
+
+        // file info
         fileName,
         filePath,
         contentType,
         audioURL,
+
+        // location
         location: {
           lat: Number.isFinite(lat) ? lat : 0,
           lng: Number.isFinite(lon) ? lon : 0,
         },
+
         status: 'pending_analysis',
         history: [{ action: 'submitted', actorId: user.uid, timestamp: nowIso }],
+
+        // denormalized user info
+        userEmail,
+        displayName,
+        firstName,
+        lastName,
+
+        // timestamps
         timestamp: serverTimestamp(),
         timestamp_iso: nowIso,
       });
@@ -252,7 +297,6 @@ export default function PredictionScreen() {
       setLoading(false);
     }
   };
-
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -281,7 +325,7 @@ export default function PredictionScreen() {
       )}
 
       <TouchableOpacity style={styles.actionButton} onPress={handlePlay}>
-        <Text style={styles.actionButtonText}>Play Recording</Text>
+        <Text style={styles.actionButtonText}>Play/ Replay Recording</Text>
       </TouchableOpacity>
 
       <TouchableOpacity
@@ -291,14 +335,20 @@ export default function PredictionScreen() {
           setLoading(true);
           setApiError(null);
           try {
-            const res = await callPredict(audioUri, isFinite(lat) ? lat : undefined, isFinite(lon) ? lon : undefined);
+            const res = await callPredict(
+              audioUri,
+              isFinite(lat) ? lat : undefined,
+              isFinite(lon) ? lon : undefined
+            );
             const pct = toPercent(res.confidence);
             setPredictedSpecies(res.species || 'Bullfrog');
             setConfidenceInput(String(Math.round(pct)));
-            setTop3((res.top3 ?? []).map((t: any) => ({
-              species: t.species ?? t[0],
-              confidence: toPercent(t.confidence ?? t[1]),
-            })));
+            setTop3(
+              (res.top3 ?? []).map((t: any) => ({
+                species: t.species ?? t[0],
+                confidence: toPercent(t.confidence ?? t[1]),
+              }))
+            );
           } catch (e: any) {
             setApiError(e?.message || 'Prediction failed');
           } finally {
@@ -338,8 +388,7 @@ export default function PredictionScreen() {
   );
 }
 
-//API helpers
-
+/* ---------------- API helpers ---------------- */
 async function callPredict(uri: string, lat?: number, lon?: number) {
   const mime = guessMime(uri);
   const form = new FormData();
@@ -352,10 +401,8 @@ async function callPredict(uri: string, lat?: number, lon?: number) {
 
   for (const url of endpoints) {
     try {
-      console.log('[predict] POST', url, { mime, uri });
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 90000); // 90s
-
+      const timer = setTimeout(() => controller.abort(), 90_000); // 90s
       const resp = await fetch(url, { method: 'POST', body: form, signal: controller.signal });
       clearTimeout(timer);
 
@@ -370,13 +417,13 @@ async function callPredict(uri: string, lat?: number, lon?: number) {
         top3: Array.isArray(data.top3) ? data.top3 : [],
       };
     } catch (e) {
-      console.warn('[predict] failed on', url, e);
       lastErr = e;
     }
   }
   throw lastErr || new Error('No endpoint responded');
 }
 
+/* ---------------- styles ---------------- */
 const styles = StyleSheet.create({
   container: { backgroundColor: '#e6f9e1', alignItems: 'center', padding: 40, flexGrow: 1 },
   image: { width: 300, height: 200, borderRadius: 16, marginBottom: 10, borderWidth: 2, borderColor: '#66bb6a' },

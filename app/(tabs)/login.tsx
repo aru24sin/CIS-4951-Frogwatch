@@ -1,5 +1,5 @@
 // login.tsx
-import { Link } from 'expo-router';
+import { Link, useRouter } from 'expo-router';
 import { sendPasswordResetEmail, signInWithEmailAndPassword } from 'firebase/auth';
 import { httpsCallable } from 'firebase/functions';
 import React, { useState } from 'react';
@@ -17,6 +17,8 @@ import {
 import { auth, functions } from '../firebaseConfig';
 
 export default function LoginScreen() {
+  const router = useRouter();
+
   // login state
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -37,7 +39,8 @@ export default function LoginScreen() {
     try {
       const cred = await signInWithEmailAndPassword(auth, email.trim(), password);
       console.log('Logged in as:', cred.user.email);
-      // TODO: navigate wherever you want after login
+      // Go straight to the Home tab
+      router.replace('./homeScreen');
     } catch (e: any) {
       setError(e?.message ?? 'Login failed.');
     } finally {
@@ -62,7 +65,7 @@ export default function LoginScreen() {
 
       Alert.alert(
         'Check your email',
-        "If an account exists for that address, you'll receive a password reset email."
+        "If an account exists for that username, you will receive a password reset email."
       );
       setForgotOpen(false);
       setFpEmail(''); setAns1(''); setAns2(''); setAns3('');
@@ -70,7 +73,7 @@ export default function LoginScreen() {
       console.log('Forgot flow error:', err);
       Alert.alert(
         'Check your email',
-        "If an account exists for that address, you'll receive a password reset email."
+        "If an account exists for that username, you will receive a password reset email."
       );
       setForgotOpen(false);
     } finally {
@@ -181,13 +184,7 @@ export default function LoginScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, justifyContent: 'center', paddingHorizontal: 24 },
-  title: {
-    fontSize: 68,
-    fontWeight: '400',
-    color: '#000',
-    marginBottom: 20,
-    marginLeft: 10,
-  },
+  title: { fontSize: 68, fontWeight: '400', color: '#000', marginBottom: 20, marginLeft: 10 },
   input: {
     backgroundColor: 'rgba(0,0,0,0.3)',
     padding: 18,
@@ -212,40 +209,19 @@ const styles = StyleSheet.create({
   buttonText: { color: '#fff', fontSize: 20, fontWeight: '500' },
   link: { color: '#000', textAlign: 'center', marginTop: 8, textDecorationLine: 'underline' },
   error: { color: '#d32f2f', textAlign: 'center', marginBottom: 10 },
-  modalBackdrop: {
-    flex: 1, backgroundColor: 'rgba(0,0,0,0.3)', justifyContent: 'center', padding: 24,
-  },
-  modalCard: {
-    backgroundColor: '#252c25ff', borderRadius: 16, padding: 20,
-  },
+  modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.3)', justifyContent: 'center', padding: 24 },
+  modalCard: { backgroundColor: '#252c25ff', borderRadius: 16, padding: 20 },
   modalTitle: { fontSize: 20, fontWeight: '700', color: '#3ab132ff', marginBottom: 12 },
-  modalInput: {
-    backgroundColor: '#151515ff',
-    padding: 16,
-    borderRadius: 25,
-    marginBottom: 16,
-    fontSize: 16,
-    color: '#000',
-  },
-  modalButtons: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 12,
-  },
+  modalInput: { backgroundColor: '#151515ff', padding: 16, borderRadius: 25, marginBottom: 16, fontSize: 16, color: '#000' },
+  modalButtons: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 12 },
   modalButton: {
     flex: 1,
     paddingVertical: 14,
     borderRadius: 25,
     alignItems: 'center',
     marginHorizontal: 6,
-    borderStyle: 'solid',
     borderWidth: 1,
     borderColor: '#3ab132ff',
   },
-  modalButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-
+  modalButtonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
 });

@@ -80,9 +80,7 @@ export default function RegisterScreen() {
       style={styles.background}
     >
       <ScrollView contentContainerStyle={styles.container}>
-        <Text style={styles.title}>Register</Text>
-
-        <Text style={styles.title2}>Personal Information</Text>
+        <Text style={styles.title}>Register </Text>
 
         {/* First + Last Name in a row */}
         <View style={styles.nameRow}>
