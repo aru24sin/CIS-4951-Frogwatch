@@ -1,4 +1,4 @@
-// app/(tabs)/home.tsx
+// homeScreen.tsx
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { onAuthStateChanged } from "firebase/auth";
@@ -15,7 +15,6 @@ export default function HomeScreen() {
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (user) => {
       if (!user) {
-        // No hard redirect. Let Login handle navigation into tabs.
         setFirstName(null);
         setLastName(null);
         return;
@@ -51,15 +50,11 @@ export default function HomeScreen() {
     (firstName || lastName) ||
     "";
 
-  // ...rest of your component (unchanged UI)
-  // Replace the greeting line to include the name when available:
-  // <Text style={styles.hello}>Hello{fullName ? `, ${fullName}` : ","}</Text>
-
   const today = new Date();
   const formattedDate = today.toLocaleDateString("en-US", { weekday: "long", day: "numeric", month: "long" });
 
   return (
-    <ImageBackground source={require("../../assets/images/homeBackground.png")} style={styles.background} resizeMode="cover">
+    <ImageBackground source={require("../../assets/images/gradient-background.png")} style={styles.background} resizeMode="cover">
       <ScrollView contentContainerStyle={styles.scrollContainer} showsVerticalScrollIndicator={false}>
         <View style={styles.overlay}>
           <View>
