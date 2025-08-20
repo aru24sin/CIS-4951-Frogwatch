@@ -16,18 +16,22 @@ import {
 import MapView, { Marker } from 'react-native-maps';
 
 const MAX_RECORD_SECONDS = 10;
+const MAX_MS = MAX_RECORD_SECONDS * 1000;
 
 export default function RecordScreen() {
   const [location, setLocation] = useState<Location.LocationObjectCoords | null>(null);
   const [isRecording, setIsRecording] = useState(false);
-  const [recording, setRecording] = useState<Audio.Recording | null>(null);
   const [audioUri, setAudioUri] = useState<string | null>(null);
   const [sound, setSound] = useState<Audio.Sound | null>(null);
   const [timer, setTimer] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
 
+  // Refs to avoid stale state in callbacks
+  const recRef = useRef<Audio.Recording | null>(null);
+  const stoppingRef = useRef(false);
+  const autoStopRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const progressAnim = useRef(new Animated.Value(0)).current;
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const router = useRouter();
 
   useEffect(() => {
@@ -46,11 +50,11 @@ export default function RecordScreen() {
 
   useEffect(() => {
     return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
+      if (autoStopRef.current) clearTimeout(autoStopRef.current);
       if (sound) sound.unloadAsync().catch(() => {});
-      if (recording) recording.stopAndUnloadAsync().catch(() => {});
+      if (recRef.current) recRef.current.stopAndUnloadAsync().catch(() => {});
     };
-  }, [sound, recording]);
+  }, [sound]);
 
   const startRecording = async () => {
     if (isRecording) return;
@@ -66,34 +70,39 @@ export default function RecordScreen() {
         playsInSilentModeIOS: true,
       });
 
+      // Reset UI
+      setAudioUri(null);
+      setTimer(0);
+      progressAnim.setValue(0);
+      stoppingRef.current = false;
+      if (autoStopRef.current) clearTimeout(autoStopRef.current);
+      if (sound) {
+        await sound.unloadAsync().catch(() => {});
+        setSound(null);
+      }
+
       const { recording } = await Audio.Recording.createAsync(
         Audio.RecordingOptionsPresets.HIGH_QUALITY
       );
-      setRecording(recording);
-      setAudioUri(null);
-      if (sound) {
-        sound.unloadAsync().catch(() => {});
-        setSound(null);
-      }
+
+      // Keep latest recording in a ref (not state) so callbacks always see it
+      recRef.current = recording;
+
+      // Drive timer & progress from recorder’s duration
+      recording.setOnRecordingStatusUpdate((st: any) => {
+        const dur = Math.max(0, st?.durationMillis ?? 0);
+        setTimer(Math.min(MAX_RECORD_SECONDS, Math.floor(dur / 1000)));
+        progressAnim.setValue(Math.min(1, dur / MAX_MS));
+      });
+      // @ts-ignore present at runtime
+      recording.setProgressUpdateInterval(150);
+
       setIsRecording(true);
-      setTimer(0);
-      progressAnim.setValue(0);
 
-      intervalRef.current = setInterval(() => {
-        setTimer((prev) => {
-          if (prev + 1 > MAX_RECORD_SECONDS) {
-            stopRecording();
-            return MAX_RECORD_SECONDS;
-          }
-          return prev + 1;
-        });
-      }, 1000);
-
-      Animated.timing(progressAnim, {
-        toValue: 1,
-        duration: MAX_RECORD_SECONDS * 1000,
-        useNativeDriver: false,
-      }).start();
+      // Hard auto-stop at 10s
+      autoStopRef.current = setTimeout(() => {
+        stopRecording();
+      }, MAX_MS);
     } catch (err) {
       console.error('Error starting recording', err);
       Alert.alert('Error', 'Could not start recording.');
@@ -101,37 +110,51 @@ export default function RecordScreen() {
   };
 
   const stopRecording = async () => {
-    if (!recording) return;
+    const rec = recRef.current;
+    if (!rec || stoppingRef.current) return;
     try {
-      if (intervalRef.current) clearInterval(intervalRef.current);
+      stoppingRef.current = true;
+      if (autoStopRef.current) {
+        clearTimeout(autoStopRef.current);
+        autoStopRef.current = null;
+      }
       setIsRecording(false);
 
-      // Stop progress animation immediately
-      progressAnim.stopAnimation((currentValue) => {
-        progressAnim.setValue(currentValue);
-      });
+      // Freeze progress where it is
+      progressAnim.stopAnimation((v) => progressAnim.setValue(v));
 
-      await recording.stopAndUnloadAsync();
-      const tmpUri = recording.getURI();
-      setRecording(null);
+      await rec.stopAndUnloadAsync();
+      const tmpUri = rec.getURI();
+      recRef.current = null; // release
 
       if (!tmpUri) {
         Alert.alert('Recording error', 'No audio URI returned.');
         return;
       }
 
-      const dir = FileSystem.documentDirectory + 'recordings/';
-      await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
-
-      const ext = tmpUri.includes('.') ? tmpUri.substring(tmpUri.lastIndexOf('.')) : '.m4a';
-      const finalUri = dir + `rec-${Date.now()}${ext}`;
-      await FileSystem.copyAsync({ from: tmpUri, to: finalUri });
-
-      setAudioUri(finalUri);
+      // Persist into app documents dir (fallback to tmp if copy fails)
+      try {
+        const dir = FileSystem.documentDirectory + 'recordings/';
+        await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
+        const extMatch = tmpUri.match(/\.[a-z0-9]+$/i);
+        const ext = extMatch ? extMatch[0] : '.m4a';
+        const finalUri = `${dir}rec-${Date.now()}${ext}`;
+        await FileSystem.copyAsync({ from: tmpUri, to: finalUri });
+        setAudioUri(finalUri);
+      } catch {
+        setAudioUri(tmpUri);
+      }
     } catch (err) {
       console.error('Error stopping recording', err);
       Alert.alert('Error', 'Could not stop recording.');
+    } finally {
+      stoppingRef.current = false;
     }
+  };
+
+  const toggleRecord = () => {
+    if (isRecording) stopRecording();
+    else startRecording();
   };
 
   const playAudio = async () => {
@@ -144,8 +167,8 @@ export default function RecordScreen() {
       }
 
       if (sound) {
-        const status = await sound.getStatusAsync();
-        if (status.isLoaded) {
+        const status: any = await sound.getStatusAsync();
+        if (status?.isLoaded) {
           await sound.replayAsync();
           return;
         } else {
@@ -207,7 +230,7 @@ export default function RecordScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Header with nav icons */}
+      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.push('./homeScreen')}>
           <Ionicons name="arrow-back" size={32} color="#222" style={styles.icon} />
@@ -218,8 +241,7 @@ export default function RecordScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Listening label */}
-      <Text style={styles.title}>Listening...</Text>
+      <Text style={styles.title}>Ready to record...</Text>
 
       {/* Map */}
       <View style={styles.mapContainer}>
@@ -242,13 +264,10 @@ export default function RecordScreen() {
       </View>
       <Text style={styles.timerText}>{timer}s</Text>
 
-      {/* Record Button */}
+      {/* Record Button (toggles start/stop) */}
       {!audioUri && (
-        <TouchableOpacity
-          style={styles.recordButton}
-          onPress={isRecording ? stopRecording : startRecording}
-        >
-          <View style={styles.innerCircle} />
+        <TouchableOpacity style={styles.recordButton} onPress={toggleRecord}>
+          <View style={[styles.innerCircle, isRecording && { backgroundColor: '#c62828' }]} />
         </TouchableOpacity>
       )}
 
@@ -256,13 +275,13 @@ export default function RecordScreen() {
       {audioUri && !isRecording && (
         <View style={styles.actions}>
           <TouchableOpacity style={styles.actionButton} onPress={playAudio}>
-            <Text style={styles.actionText}>Play</Text>
+            <Text style={styles.actionText}>Play/Replay Recording</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.actionButton} onPress={reRecord}>
             <Text style={styles.actionText}>Re-record</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.actionButton} onPress={upload}>
-            <Text style={styles.actionText}>Analyze</Text>
+            <Text style={styles.actionText}>Analyze Recording</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -280,7 +299,7 @@ const styles = StyleSheet.create({
     marginTop: 50,
   },
   icon: { backgroundColor: '#00000020', padding: 12, borderRadius: 50 },
-  title: { fontSize: 38, color: 'white', marginBottom: 20, alignSelf: 'flex-start', marginLeft: 20 },
+  title: { fontSize: 24, color: 'white', marginBottom: 20, alignSelf: 'flex-start', marginLeft: 20 },
   mapContainer: { width: 320, height: 250, borderRadius: 20, overflow: 'hidden' },
   map: { flex: 1 },
   progressBarContainer: {
@@ -290,7 +309,7 @@ const styles = StyleSheet.create({
     borderRadius: 7,
     marginTop: 40,
   },
-  progressBar: { height: 14, backgroundColor: '#638B6F', borderRadius: 7 },
+  progressBar: { height: 14, backgroundColor: '#ef6d17ff', borderRadius: 7 },
   timerText: { fontSize: 22, color: 'white', marginTop: 10 },
   recordButton: {
     marginTop: 30,
@@ -301,7 +320,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  innerCircle: { width: 50, height: 50, borderRadius: 25, backgroundColor: 'red' },
+  innerCircle: { width: 70, height: 70, borderRadius: 40, backgroundColor: 'red' },
   actions: { marginTop: 20, width: '100%', alignItems: 'center' },
   actionButton: {
     backgroundColor: '#638B6F',
