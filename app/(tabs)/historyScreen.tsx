@@ -1,13 +1,13 @@
 import { Audio } from 'expo-av';
 import React, { useEffect, useRef, useState } from 'react';
 import {
-    ActivityIndicator,
-    FlatList,
-    Image,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  FlatList,
+  Image,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import MapView, { Marker } from 'react-native-maps';
 
@@ -27,11 +27,14 @@ interface Recording {
 }
 
 const speciesImageMap: { [key: string]: string } = {
-  'American Bullfrog': require('../../assets/frogs/bullfrog.png'),
-  'Green Treefrog': require('../../assets/frogs/treefrog.png'),
-  'Spring Peeper': require('../../assets/frogs/spring_peeper.png'),
+  'Bullfrog': require('../../assets/frogs/bullfrog.png'),
+  'Green Frog': require('../../assets/frogs/treefrog.png'),
+  'Northern Spring Peeper': require('../../assets/frogs/spring_peeper.png'),
   'Northern Leopard Frog': require('../../assets/frogs/northern_leopard.png'),
-  'Gray Treefrog': require('../../assets/frogs/gray_treefrog.png'),
+  'Eastern Gray Treefrog': require('../../assets/frogs/gray_treefrog.png'),
+  'Wood Frog': require('../../assets/frogs/wood_frog.png'),
+  'American Toad': require('../../assets/frogs/american_toad.png'),
+  'Midland Chorus Frog': require('../../assets/frogs/midland_chorus.png')
 };
 
 const placeholderImage = require('../../assets/frogs/placeholder.png');
@@ -49,8 +52,8 @@ const HistoryScreen = () => {
         {
           recordingId: 'rec1',
           userId: 'test',
-          species: 'American Bullfrog',
-          predictedSpecies: 'American Bullfrog',
+          species: 'Bullfrog',
+          predictedSpecies: 'Bullfrog',
           audioURL: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3',
           location: { latitude: 42.3314, longitude: -83.0458 },
           status: 'confirmed',

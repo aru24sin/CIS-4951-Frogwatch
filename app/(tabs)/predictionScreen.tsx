@@ -18,9 +18,9 @@ import {
 } from 'react-native';
 
 // Firebase
-import app, { db, auth } from '../firebaseConfig';
-import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { signInWithEmailAndPassword } from 'firebase/auth';
+import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
+import app, { auth, db } from '../firebaseConfig';
 
 type TopItem = { species: string; confidence: number };
 
@@ -29,11 +29,14 @@ const EMAIL = 'vnitu393@gmail.com';
 const PASSWORD = 'hello123';    
 
 const speciesImageMap: Record<string, any> = {
-  'American Bullfrog': require('../../assets/frogs/bullfrog.png'),
-  'Green Treefrog': require('../../assets/frogs/treefrog.png'),
-  'Spring Peeper': require('../../assets/frogs/spring_peeper.png'),
+  'Bullfrog': require('../../assets/frogs/bullfrog.png'),
+  'Green Frog': require('../../assets/frogs/treefrog.png'),
+  'Northern Spring Peeper': require('../../assets/frogs/spring_peeper.png'),
   'Northern Leopard Frog': require('../../assets/frogs/northern_leopard.png'),
-  'Gray Treefrog': require('../../assets/frogs/gray_treefrog.png'),
+  'Eastern Gray Treefrog': require('../../assets/frogs/gray_treefrog.png'),
+  'Wood Frog': require('../../assets/frogs/wood_frog.png'),
+  'American Toad': require('../../assets/frogs/american_toad.png'),
+  'Midland Chorus Frog': require('../../assets/frogs/midland_chorus.png')
 };
 const placeholderImage = require('../../assets/frogs/placeholder.png');
 
@@ -92,7 +95,7 @@ export default function PredictionScreen() {
   const [sound, setSound] = useState<Audio.Sound | null>(null);
   const [loading, setLoading] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
-  const [predictedSpecies, setPredictedSpecies] = useState('American Bullfrog');
+  const [predictedSpecies, setPredictedSpecies] = useState('Bullfrog');
   const [confidenceInput, setConfidenceInput] = useState('');
   const [top3, setTop3] = useState<TopItem[]>([]);
   const mountedRef = useRef(true);
@@ -120,7 +123,7 @@ export default function PredictionScreen() {
         const res = await callPredict(audioUri, isFinite(lat) ? lat : undefined, isFinite(lon) ? lon : undefined);
         const pct = toPercent(res.confidence);
         if (!mountedRef.current) return;
-        setPredictedSpecies(res.species || 'American Bullfrog');
+        setPredictedSpecies(res.species || 'Bullfrog');
         setConfidenceInput(String(Math.round(pct)));
         setTop3((res.top3 ?? []).map((t: any) => ({
           species: t.species ?? t[0],
@@ -290,7 +293,7 @@ export default function PredictionScreen() {
           try {
             const res = await callPredict(audioUri, isFinite(lat) ? lat : undefined, isFinite(lon) ? lon : undefined);
             const pct = toPercent(res.confidence);
-            setPredictedSpecies(res.species || 'American Bullfrog');
+            setPredictedSpecies(res.species || 'Bullfrog');
             setConfidenceInput(String(Math.round(pct)));
             setTop3((res.top3 ?? []).map((t: any) => ({
               species: t.species ?? t[0],

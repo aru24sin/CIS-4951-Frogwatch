@@ -209,7 +209,7 @@ export default function RecordScreen() {
     <View style={styles.container}>
       {/* Header with nav icons */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.push('/homeScreen')}>
+        <TouchableOpacity onPress={() => router.push('./homeScreen')}>
           <Ionicons name="arrow-back" size={32} color="#222" style={styles.icon} />
         </TouchableOpacity>
 

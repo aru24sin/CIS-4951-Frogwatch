@@ -21,11 +21,14 @@ interface Recording {
 }
 
 const speciesImageMap: { [key: string]: string } = {
-  'American Bullfrog': require('../../assets/frogs/bullfrog.png'),
-  'Green Treefrog': require('../../assets/frogs/treefrog.png'),
-  'Spring Peeper': require('../../assets/frogs/spring_peeper.png'),
+  'Bullfrog': require('../../assets/frogs/bullfrog.png'),
+  'Green Frog': require('../../assets/frogs/treefrog.png'),
+  'Northern Spring Peeper': require('../../assets/frogs/spring_peeper.png'),
   'Northern Leopard Frog': require('../../assets/frogs/northern_leopard.png'),
-  'Gray Treefrog': require('../../assets/frogs/gray_treefrog.png'),
+  'Eastern Gray Treefrog': require('../../assets/frogs/gray_treefrog.png'),
+  'Wood Frog': require('../../assets/frogs/wood_frog.png'),
+  'American Toad': require('../../assets/frogs/american_toad.png'),
+  'Midland Chorus Frog': require('../../assets/frogs/midland_chorus.png')
 };
 
 const placeholderImage = require('../../assets/frogs/placeholder.png');
