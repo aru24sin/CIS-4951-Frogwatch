@@ -3,12 +3,12 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React from "react";
 import {
-    ImageBackground,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ImageBackground,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 
 export default function HomeScreen() {
@@ -49,13 +49,13 @@ export default function HomeScreen() {
             <View style={styles.grid}>
               <TouchableOpacity
                 style={styles.button}
-                onPress={() => router.push("/recordScreen")}
+                onPress={() => router.push("./recordScreen")}
               >
                 <Ionicons name="radio-button-on" size={28} color="#ccff00" />
                 <Text style={styles.buttonText}>recording</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity style={styles.button} onPress={() => router.push("/historyScreen")}>
+              <TouchableOpacity style={styles.button} onPress={() => router.push("./historyScreen")}>
                 <Ionicons name="bookmark" size={28} color="#ccff00" />
                 <Text style={styles.buttonText}>history</Text>
               </TouchableOpacity>
