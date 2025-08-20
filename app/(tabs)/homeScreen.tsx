@@ -33,7 +33,6 @@ export default function HomeScreen() {
           setFirstName(parts[0] || null);
           setLastName(parts.slice(1).join(" ") || null);
         } else {
-          // fallback: derive from email (before the @)
           const local = (user.email || "").split("@")[0];
           setFirstName(local ? local : null);
           setLastName(null);
@@ -60,8 +59,15 @@ export default function HomeScreen() {
           <View>
             <Text style={styles.hello}>Hello{fullName ? `, ${fullName}` : ","}</Text>
             <Text style={styles.date}>{formattedDate}</Text>
-            <Image source={require('../../assets/images/frog-umbrella-clipart-xl.png')}style={styles.logo} />
 
+            {/* Logo */}
+            <Image
+              source={require('../../assets/images/frog-umbrella-clipart-xl.png')}
+              style={styles.logo}
+            />
+
+            {/* Brand UNDER the logo */}
+            <Text style={styles.brand}>Frogwatch+</Text>
           </View>
 
           {/* Status + Buttons pinned to bottom */}
@@ -112,9 +118,23 @@ const styles = StyleSheet.create({
   background: { flex: 1, width: "100%", height: "100%" },
   scrollContainer: { flexGrow: 1 },
   overlay: { flex: 1, paddingTop: 60, paddingHorizontal: 24, paddingBottom: 40, justifyContent: "space-between" },
-  hello: { marginTop: 20, fontSize: 32, fontWeight: "400", color: "Black" },
-  date: { fontSize: 32, fontWeight: "500", color: "#e3a300ff", marginBottom: 20 },
-  logo: {  width: 280, height:280, resizeMode: 'contain', alignSelf: 'center',  marginTop: 8,  marginBottom: 8},
+
+  hello: { marginTop: 20, fontSize: 32, fontWeight: "400", color: "#000" },
+  date: { fontSize: 32, fontWeight: "500", color: "#e3a300ff", marginBottom: 12 },
+
+  logo: { width: 280, height: 280, resizeMode: 'contain', alignSelf: 'center', marginTop: 8 },
+
+  // NEW: brand style
+  brand: {
+    fontSize: 50,
+    fontWeight: "400",
+    color: "#2D3E32",
+    textAlign: "center",
+    marginTop: 10,
+    marginBottom: 0,
+    letterSpacing: 5,
+  },
+
   bottomSection: { marginTop: 20 },
   status: { fontSize: 18, color: "#000", marginBottom: 20 },
   grid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" },

@@ -49,10 +49,10 @@ const styles = StyleSheet.create({
     marginTop: 100,
   },
   brand: {
-    fontSize: 55,
+    fontSize: 50,
     fontWeight: '400',
     color: '#2D3E32',
-    letterSpacing: 4,
+    letterSpacing: 5,
     textAlign: 'center',
     marginBottom: 11,
   },
