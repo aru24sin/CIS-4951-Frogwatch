@@ -120,7 +120,7 @@ export default function RegisterScreen() {
           placeholderTextColor="#fff"
         />
 
-        <Text style={styles.title2}>Security Questions</Text>
+        <Text style={styles.title2}>Security Questions:</Text>
 
         <TextInput
           placeholder="What city were you born in?"
@@ -146,7 +146,7 @@ export default function RegisterScreen() {
           placeholderTextColor="#fff"
         />
 
-        <Text style={styles.title2}>Additional Role?</Text>
+        <Text style={styles.title2}>Not a Volunteer Account?</Text>
 
         {/* Role Selection Buttons (default Volunteer, Expert/Admin optional) */}
         <View style={styles.roleRow}>
@@ -181,7 +181,7 @@ export default function RegisterScreen() {
 
         <Link href="../login" asChild>
           <TouchableOpacity accessibilityRole="link">
-            <Text style={styles.link}>Already have an account? Login</Text>
+            <Text style={styles.link}>Already have an account? Login here</Text>
           </TouchableOpacity>
         </Link>
       </ScrollView>
@@ -200,16 +200,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   title: {
-    fontSize: 58,
+    fontSize: 40,
     fontWeight: '400',
     color: '#000',
-    textAlign: 'left',
-    marginBottom: 1,
-    marginTop: 20,
-    paddingTop: 20,
+    textAlign: 'center',
+    marginBottom: 20,
+    marginTop: 0,
+    paddingTop: 0,
   },
   title2: {
-    fontSize: 24,
+    fontSize: 18,
     fontWeight: '400',
     color: '#000',
     textAlign: 'left',
@@ -241,7 +241,7 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 14,
     borderRadius: 25,
-    backgroundColor: 'rgba(0,0,0,0.35)',
+    backgroundColor: 'rgba(0, 0, 0, 0.35)',
     alignItems: 'center',
   },
   roleButtonActive: {
@@ -259,24 +259,26 @@ const styles = StyleSheet.create({
   button: {
     backgroundColor: '#000',
     padding: 14,
-    borderRadius: 30,
+    borderRadius: 40,
     alignItems: 'center',
     marginTop: 10,
     marginBottom: 20,
   },
   buttonText: {
     color: '#fff',
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: '600',
   },
   link: {
-    color: '#000',
+    color: '#fff',
     textAlign: 'center',
-    marginTop: 8,
+    fontSize: 14,
+    fontWeight: '400',
+    marginTop: 0,
     textDecorationLine: 'underline',
   },
   error: {
-    color: '#f55',
+    color: '#fff',
     textAlign: 'center',
     marginBottom: 10,
   },

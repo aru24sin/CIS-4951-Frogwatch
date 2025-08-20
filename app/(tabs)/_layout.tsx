@@ -1,4 +1,3 @@
-import { Ionicons } from '@expo/vector-icons';
 import { Tabs } from 'expo-router';
 import React from 'react';
 import { Platform } from 'react-native';
@@ -26,12 +25,9 @@ export default function TabLayout() {
       }}
     >
       <Tabs.Screen
-        name="recordScreen"
+        name="landingScreen"
         options={{
-          title: 'Record',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="mic" size={size} color={color} />
-          ),
+          title: ''
         }}
       />
     </Tabs>

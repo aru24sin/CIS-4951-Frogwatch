@@ -19,7 +19,7 @@ import {
 
 // Firebase
 import { signInWithEmailAndPassword } from 'firebase/auth';
-import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
+import { collection, doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
 import app, { auth, db } from '../firebaseConfig';
 
 type TopItem = { species: string; confidence: number };
@@ -244,50 +244,34 @@ export default function PredictionScreen() {
       }
 
       // 5) Write Firestore document (denormalized + both confidence forms)
-      const recordingId = `rec_${fileName.slice(0, 8)}`;
-      const nowIso = new Date().toISOString();
-      const audioURL = `/get-audio/${fileName}`; // History will prefix with API_BASE
+      // NEW (auto-ID avoids collisions/permission errors)
+const recRef = doc(collection(db, 'recordings')); // auto ID
+const recordingId = recRef.id;
 
-      await setDoc(doc(db, 'recordings', recordingId), {
-        recordingId,
-        userId: user.uid,
-        createdBy: user.uid,
+const nowIso = new Date().toISOString();
+const audioURL = `/get-audio/${fileName}`;
 
-        // model output + user confirmation
-        predictedSpecies: predictedSpecies || '',
-        species: '',
-
-        // keep both forms for convenience
-        confidenceScore: score / 100,     // 0..1
-        confidencePercent: score,         // 0..100
-
-        top3,
-
-        // file info
-        fileName,
-        filePath,
-        contentType,
-        audioURL,
-
-        // location
-        location: {
-          lat: Number.isFinite(lat) ? lat : 0,
-          lng: Number.isFinite(lon) ? lon : 0,
-        },
-
-        status: 'pending_analysis',
-        history: [{ action: 'submitted', actorId: user.uid, timestamp: nowIso }],
-
-        // denormalized user info
-        userEmail,
-        displayName,
-        firstName,
-        lastName,
-
-        // timestamps
-        timestamp: serverTimestamp(),
-        timestamp_iso: nowIso,
-      });
+await setDoc(recRef, {
+  recordingId,
+  createdBy: user.uid,  // must match rules
+  userId: user.uid,     // keep both for convenience
+  predictedSpecies: predictedSpecies || '',
+  species: '',
+  confidenceScore: score / 100,
+  top3,
+  fileName,
+  filePath,
+  contentType,
+  audioURL,
+  location: {
+    lat: Number.isFinite(lat) ? lat : 0,
+    lng: Number.isFinite(lon) ? lon : 0,
+  },
+  status: 'pending_analysis',
+  history: [{ action: 'submitted', actorId: user.uid, timestamp: nowIso }],
+  timestamp: serverTimestamp(),
+  timestamp_iso: nowIso,
+});
 
       Alert.alert('Submitted', 'Your recording was saved to Firebase.');
     } catch (err: any) {

@@ -11,8 +11,9 @@ export default function LandingScreen() {
       style={styles.container}
       resizeMode="cover"
     >
-      {/* Frog graphic */}
+      {/* Brand + Frog graphic */}
       <View style={styles.topContent}>
+        <Text style={styles.brand}>Frogwatch+</Text>
         <Image
           source={require('../../assets/images/frog-umbrella-clipart-xl.png')}
           style={styles.logo}
@@ -28,10 +29,10 @@ export default function LandingScreen() {
 
       {/* Buttons */}
       <View style={styles.bottomButtons}>
-        <TouchableOpacity style={styles.button} onPress={() => router.push('/login')}>
+        <TouchableOpacity style={styles.button} onPress={() => router.push('./login')}>
           <Text style={styles.buttonText}>Login</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.button} onPress={() => router.push('/register')}>
+        <TouchableOpacity style={styles.button} onPress={() => router.push('./register')}>
           <Text style={styles.buttonText}>Register</Text>
         </TouchableOpacity>
       </View>
@@ -45,13 +46,21 @@ const styles = StyleSheet.create({
   },
   topContent: {
     alignItems: 'center',
-    marginTop: 80,
+    marginTop: 100,
+  },
+  brand: {
+    fontSize: 55,
+    fontWeight: '400',
+    color: '#2D3E32',
+    letterSpacing: 4,
+    textAlign: 'center',
+    marginBottom: 11,
   },
   logo: {
-    width: 200,
-    height: 200,
+    width: 250,
+    height: 250,
     resizeMode: 'contain',
-    marginTop: 170,
+    marginTop: 18,
     marginRight: 0,
   },
   middleContent: {
@@ -61,11 +70,11 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   title: {
-    fontSize: 45,
+    fontSize: 30,
     fontWeight: '400',
     color: '#000',
-    textAlign: 'left',
-    lineHeight: 60,
+    textAlign: 'center',
+    lineHeight: 50,
   },
   frogWord: {
     color: '#50BD46',
@@ -75,20 +84,20 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-around',
     marginBottom: 70,
-    paddingHorizontal: 20,
+    paddingHorizontal: 5,
     paddingVertical: 20,
   },
   button: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.4)',
-    padding: 18,
-    borderRadius: 20,
+    padding: 10,
+    borderRadius: 50,
     marginHorizontal: 3,
     alignItems: 'center',
   },
   buttonText: {
     color: '#fff',
-    fontSize: 28,
+    fontSize: 30,
     fontWeight: '300',
     textAlign: 'center',
     paddingTop: 12,

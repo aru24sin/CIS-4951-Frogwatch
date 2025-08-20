@@ -206,18 +206,27 @@ export default function RecordScreen() {
     ]);
   };
 
-  const upload = () => {
-    if (audioUri && location) {
-      router.push({
-        pathname: './predictionScreen',
-        params: {
-          audioUri,
-          lat: String(location.latitude),
-          lon: String(location.longitude),
-        },
-      });
-    }
-  };
+const upload = () => {
+  if (audioUri && location) {
+    const currentUri = audioUri; // cache before clearing
+    // navigate first
+    router.push({
+      pathname: './predictionScreen',
+      params: {
+        audioUri: currentUri,
+        lat: String(location.latitude),
+        lon: String(location.longitude),
+      },
+    });
+    // then reset local UI so coming back is clean
+    setAudioUri(null);
+    setIsRecording(false);
+    setTimer(0);
+    progressAnim.setValue(0);
+    if (sound) { sound.unloadAsync().catch(() => {}); setSound(null); }
+  }
+};
+
 
   if (isLoading || !location) {
     return <ActivityIndicator size="large" style={{ marginTop: 50 }} />;
