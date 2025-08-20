@@ -2,25 +2,12 @@
 import { Audio } from 'expo-av';
 import { onAuthStateChanged } from 'firebase/auth';
 import {
-  collection,
-  DocumentData,
-  onSnapshot,
-  query,
-  Timestamp,
-  where,
+  collection, DocumentData, onSnapshot, query, Timestamp, where
 } from 'firebase/firestore';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import {
-  ActivityIndicator,
-  FlatList,
-  Image,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { ActivityIndicator, FlatList, Image, NativeModules, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import MapView, { Marker } from 'react-native-maps';
-import { auth, db } from '../firebaseConfig';
+import app, { auth, db } from '../firebaseConfig';
 
 type Recording = {
   recordingId: string;
@@ -32,17 +19,50 @@ type Recording = {
   status: string;
   timestampISO?: string;
   confidence?: number; // 0–100
+  _tsMs?: number
 };
 
 const speciesImageMap: Record<string, any> = {
-  'American Bullfrog': require('../../assets/frogs/bullfrog.png'),
-  'Green Treefrog': require('../../assets/frogs/treefrog.png'),
-  'Spring Peeper': require('../../assets/frogs/spring_peeper.png'),
+  'Bullfrog': require('../../assets/frogs/bullfrog.png'),
+  'Green Frog': require('../../assets/frogs/treefrog.png'),
+  'Northern Spring Peeper': require('../../assets/frogs/spring_peeper.png'),
   'Northern Leopard Frog': require('../../assets/frogs/northern_leopard.png'),
-  'Gray Treefrog': require('../../assets/frogs/gray_treefrog.png'),
   'Eastern Gray Treefrog': require('../../assets/frogs/gray_treefrog.png'),
+  'Wood Frog': require('../../assets/frogs/wood_frog.png'),
+  'American Toad': require('../../assets/frogs/american_toad.png'),
+  'Midland Chorus Frog': require('../../assets/frogs/midland_chorus.png')
 };
 const placeholderImage = require('../../assets/frogs/placeholder.png');
+
+// Dev API base (only used to play very old /get-audio/... entries)
+function pickDevHost() {
+  const url: string | undefined = (NativeModules as any)?.SourceCode?.scriptURL;
+  const m = url?.match(/\/\/([^/:]+):\d+/);
+  return m?.[1] ?? 'localhost';
+}
+
+const API_BASE = __DEV__ ? `http://${pickDevHost()}:8000` : 'https://your-production-domain'
+
+
+// Build a playable URL from Firestore doc data
+function resolveAudioURL(d: any): string | undefined {
+  // Prefer Storage path → public download URL
+  const filePath = d?.filePath || (d?.fileName ? `uploaded_audios/${d.fileName}` : undefined);
+  if (filePath) {
+    const bucket = (app.options as any).storageBucket as string; // e.g. frogwatch-backend.appspot.com
+     return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodeURIComponent(
+      filePath
+    )}?alt=media`;
+  }
+  // Fallback: older docs had audioURL like '/get-audio/<file>'
+  const a = d?.audioURL;
+  if (typeof a === 'string') {
+    if (/^https?:\/\//i.test(a)) return a;
+    if (a.startsWith('/get-audio/')) return `${API_BASE}${a}`;
+  }
+
+  return undefined;
+}
 
 export default function HistoryScreen() {
   const [recordings, setRecordings] = useState<Recording[]>([]);
@@ -57,8 +77,8 @@ export default function HistoryScreen() {
     return {
       latitude: first?.location.latitude ?? 42.3314,
       longitude: first?.location.longitude ?? -83.0458,
-      latitudeDelta: 5,
-      longitudeDelta: 5,
+      latitudeDelta: 0.01,
+      longitudeDelta: 0.01,
     };
   }, [recordings]);
 
@@ -68,7 +88,6 @@ export default function HistoryScreen() {
 
     offAuth = onAuthStateChanged(auth, (user) => {
       if (!user) {
-        console.log('[history] no user, clearing list');
         setRecordings([]);
         setLoading(false);
         return;
@@ -76,13 +95,8 @@ export default function HistoryScreen() {
 
       setLoading(true);
       setErrorText(null);
-      console.log('[history] querying for uid =', user.uid);
 
-      // IMPORTANT: match your write code — make sure every doc has userId = uid
-      const q = query(
-        collection(db, 'recordings'),
-        where('userId', '==', user.uid)
-      );
+      const q = query(collection(db, 'recordings'), where('userId', '==', user.uid));
 
       offSnap = onSnapshot(
         q,
@@ -93,16 +107,14 @@ export default function HistoryScreen() {
 
             const ts: Timestamp | undefined = d.timestamp;
             const timestampISO =
-              ts?.toDate?.()?.toLocaleString?.() ??
-              d.timestamp_iso ??
-              undefined;
+              ts?.toDate?.()?.toLocaleString?.() ?? d.timestamp_iso ?? undefined;
 
             rows.push({
               recordingId: d.recordingId ?? doc.id,
               userId: d.userId ?? '',
               predictedSpecies: d.predictedSpecies ?? '',
               species: d.species ?? '',
-              audioURL: d.audioURL,
+              audioURL: resolveAudioURL(d),
               location: {
                 latitude: Number(d?.location?.lat) || 0,
                 longitude: Number(d?.location?.lng) || 0,
@@ -116,12 +128,10 @@ export default function HistoryScreen() {
             });
           });
 
-          console.log(`[history] got ${rows.length} rec(s)`);
           setRecordings(rows);
           setLoading(false);
         },
         (err) => {
-          console.warn('[history] snapshot error:', err);
           setErrorText(err?.message || String(err));
           setRecordings([]);
           setLoading(false);
@@ -156,8 +166,8 @@ export default function HistoryScreen() {
     setSelectedId(rec.recordingId);
     mapRef.current?.animateToRegion({
       ...rec.location,
-      latitudeDelta: 0.05,
-      longitudeDelta: 0.05,
+      latitudeDelta: 0.01,
+      longitudeDelta: 0.01,
     });
   };
 
@@ -173,10 +183,10 @@ export default function HistoryScreen() {
         >
           <Image source={img} style={styles.image} />
           <Text style={styles.title}>{item.predictedSpecies || '(Unknown species)'}</Text>
-          <Text>Confidence: {item.confidence ?? 'N/A'}%</Text>
-          <Text>Status: {item.status}</Text>
-          {!!item.timestampISO && <Text>Time: {item.timestampISO}</Text>}
-          <Text>
+          <Text style={styles.rowText}>Confidence: {item.confidence ?? 'N/A'}%</Text>
+          <Text style={styles.rowText}>Status: {item.status}</Text>
+          {!!item.timestampISO && <Text style={styles.rowText}>Time: {item.timestampISO}</Text>}
+          <Text style={styles.rowText}>
             Location: {item.location.latitude.toFixed(4)}, {item.location.longitude.toFixed(4)}
           </Text>
           <TouchableOpacity style={styles.button} onPress={() => handlePlay(item.audioURL)}>
@@ -190,30 +200,34 @@ export default function HistoryScreen() {
   if (loading) return <ActivityIndicator size="large" style={{ marginTop: 50 }} />;
 
   return (
-    <View style={{ flex: 1 }}>
-      {errorText ? (
-        <Text style={{ padding: 12, color: '#c00' }}>{errorText}</Text>
-      ) : null}
+    <View style={styles.container}>
+      {errorText ? <Text style={styles.error}>{errorText}</Text> : null}
 
-      <MapView ref={mapRef} style={{ height: 300 }} initialRegion={initialRegion}>
-        {recordings.map((rec) => (
-          <Marker
-            key={rec.recordingId}
-            coordinate={rec.location}
-            title={rec.predictedSpecies}
-            description={`Confidence: ${rec.confidence ?? 'N/A'}%`}
-            pinColor={rec.recordingId === selectedId ? 'orange' : 'red'}
-          />
-        ))}
-      </MapView>
+      <View style={styles.mapContainer}>
+        <MapView ref={mapRef} style={styles.map} initialRegion={initialRegion}>
+          {recordings.map((rec) => (
+            <Marker
+              key={rec.recordingId}
+              coordinate={rec.location}
+              title={rec.predictedSpecies}
+              description={`Confidence: ${rec.confidence ?? 'N/A'}%`}
+              pinColor={rec.recordingId === selectedId ? 'orange' : 'red'}
+              onPress={() => handleSelect(rec)}
+            />
+          ))}
+        </MapView>
+      </View>
 
       <FlatList
         data={recordings}
         keyExtractor={(item) => item.recordingId}
         renderItem={renderItem}
-        contentContainerStyle={{ padding: 10 }}
+        contentContainerStyle={styles.listContent}
+        showsVerticalScrollIndicator
+        persistentScrollbar
+        indicatorStyle="white"
         ListEmptyComponent={
-          <Text style={{ padding: 16, textAlign: 'center' }}>
+          <Text style={{ padding: 16, textAlign: 'center', color: '#fff' }}>
             No recordings yet. Make one from the Record screen!
           </Text>
         }
@@ -223,16 +237,30 @@ export default function HistoryScreen() {
 }
 
 const styles = StyleSheet.create({
+  // match RecordScreen look/feel
+  container: { flex: 1, backgroundColor: '#3F5A47', alignItems: 'center' },
+
+  // same embed style as RecordScreen
+  mapContainer: { width: 370, height: 300, borderRadius: 20, overflow: 'hidden', marginTop: 40, marginBottom: 15 },
+  map: { flex: 1 },
+
+  listContent: { padding: 35, paddingBottom: 24, width: '100%' },
+
+  error: { padding: 12, color: '#ffdddd', textAlign: 'center' },
+
   card: {
     backgroundColor: '#f0f8ff',
-    padding: 15,
-    borderRadius: 10,
+    padding: 5,
+    borderRadius: 5,
     marginBottom: 15,
     borderWidth: 1,
     borderColor: '#007AFF',
+    width: '110%',
+    alignSelf: 'center',
   },
   image: { width: '100%', height: 180, borderRadius: 8 },
-  title: { fontSize: 18, fontWeight: '600', marginVertical: 5 },
+  title: { fontSize: 30, fontWeight: '400', marginVertical: 5 },
+  rowText: { color: '#1b1b1b' },
   button: {
     backgroundColor: '#007AFF',
     padding: 10,
