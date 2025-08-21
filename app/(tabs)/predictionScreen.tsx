@@ -8,7 +8,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Image,
-  ImageBackground, // ⬅️ added
+  ImageBackground,
   NativeModules,
   ScrollView,
   StyleSheet,
@@ -25,8 +25,9 @@ import app, { auth, db } from '../firebaseConfig';
 
 type TopItem = { species: string; confidence: number };
 
+/* ---------------- species images ---------------- */
 const speciesImageMap: Record<string, any> = {
-  'Bullfrog': require('../../assets/frogs/bullfrog.png'),
+  Bullfrog: require('../../assets/frogs/bullfrog.png'),
   'Green Frog': require('../../assets/frogs/treefrog.png'),
   'Northern Spring Peeper': require('../../assets/frogs/spring_peeper.png'),
   'Northern Leopard Frog': require('../../assets/frogs/northern_leopard.png'),
@@ -42,30 +43,32 @@ const DEV_HOST_OVERRIDE = ''; // leave '' to auto-detect on LAN
 
 function pickDevHost() {
   if (DEV_HOST_OVERRIDE) return DEV_HOST_OVERRIDE;
+
   const hostUri =
     (Constants as any)?.expoGoConfig?.hostUri ??
     (Constants as any)?.expoGoConfig?.debuggerHost ??
     (Constants as any)?.expoConfig?.hostUri ??
     '';
+
   if (hostUri) {
     const h = String(hostUri).split(':')[0];
     if (h) return h;
   }
+
   const scriptURL: string | undefined = (NativeModules as any)?.SourceCode?.scriptURL;
   const m = scriptURL?.match(/\/\/([^/:]+):\d+/);
   return m?.[1] ?? 'localhost';
 }
 
-export const API_BASE = __DEV__
-  ? `http://${pickDevHost()}:8000`
-  : 'https://your-production-domain';
+export const API_BASE = __DEV__ ? `http://${pickDevHost()}:8000` : 'https://your-production-domain';
 
-/* ---------------- helpers ---------------- */
-function guessMime(uri: string) {
+/* ---------------- helpers (top-level; used by callPredict) ---------------- */
+function guessMime(uri: string): string {
   const lower = uri.toLowerCase();
   if (lower.endsWith('.wav')) return 'audio/wav';
   if (lower.endsWith('.m4a')) return 'audio/m4a';
   if (lower.endsWith('.mp3')) return 'audio/mpeg';
+  if (lower.endsWith('.aac')) return 'audio/aac';
   return 'application/octet-stream';
 }
 function toPercent(confMaybe01: number) {
@@ -73,6 +76,9 @@ function toPercent(confMaybe01: number) {
 }
 function makeUniqueFileName(ext: string) {
   return `rec-${Date.now()}-${Math.floor(Math.random() * 1e6)}${ext}`;
+}
+function isHttpUrl(s?: string) {
+  return !!s && /^https?:\/\//i.test(s);
 }
 
 /** Try to get a profile from Firestore users/{uid} and return name fields */
@@ -87,9 +93,8 @@ async function getUserProfile(uid: string) {
 /** Dev-only auto sign-in if no user is present */
 async function ensureSignedIn() {
   if (auth.currentUser) return;
-  if (!__DEV__) {
-    throw new Error('Not signed in. Please log in.');
-  }
+  if (!__DEV__) throw new Error('Not signed in. Please log in.');
+
   const email = process.env.EXPO_PUBLIC_DEV_EMAIL;
   const password = process.env.EXPO_PUBLIC_DEV_PASSWORD;
   if (!email || !password) {
@@ -98,6 +103,7 @@ async function ensureSignedIn() {
   await signInWithEmailAndPassword(auth, email, password);
 }
 
+/* ---------------- component ---------------- */
 export default function PredictionScreen() {
   const params = useLocalSearchParams<{ audioUri?: string; lat?: string; lon?: string }>();
   const audioUri = params.audioUri ?? '';
@@ -113,6 +119,7 @@ export default function PredictionScreen() {
   const mountedRef = useRef(true);
 
   useEffect(() => {
+    console.log('[predict] API_BASE =', API_BASE);
     return () => {
       mountedRef.current = false;
       if (sound) sound.unloadAsync().catch(() => {});
@@ -234,7 +241,7 @@ export default function PredictionScreen() {
         httpMethod: 'POST',
         headers: {
           'Content-Type': contentType,
-          'Authorization': `Bearer ${idToken}`,
+          Authorization: `Bearer ${idToken}`,
         },
         uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
       });
@@ -249,7 +256,7 @@ export default function PredictionScreen() {
       const recordingId = recRef.id;
 
       const nowIso = new Date().toISOString();
-      const audioURL = `/get-audio/${fileName}`;
+      const audioURL = `/get-audio/${fileName}`; // legacy field; we also keep filePath
 
       await setDoc(recRef, {
         recordingId,
@@ -271,7 +278,6 @@ export default function PredictionScreen() {
         history: [{ action: 'submitted', actorId: user.uid, timestamp: nowIso }],
         timestamp: serverTimestamp(),
         timestamp_iso: nowIso,
-        // optional denormalized fields:
         submitter: {
           uid: user.uid,
           displayName,
@@ -322,7 +328,7 @@ export default function PredictionScreen() {
         )}
 
         <TouchableOpacity style={styles.actionButton} onPress={handlePlay}>
-          <Text style={styles.actionButtonText}>Play/ Replay Recording</Text>
+          <Text style={styles.actionButtonText}>Play / Replay Recording</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -394,11 +400,19 @@ async function callPredict(uri: string, lat?: number, lon?: number) {
   if (typeof lat === 'number') form.append('lat', String(lat));
   if (typeof lon === 'number') form.append('lon', String(lon));
 
-  const endpoints = [`${API_BASE}/predict`, `${API_BASE}/ml/predict`];
+  // Try multiple endpoints (common cause of "Network request failed" is using localhost
+  // from a real device; this tries the LAN IP and an alt path).
+  const endpoints = [
+    `${API_BASE}/predict`,
+    `${API_BASE}/ml/predict`,
+  ];
+
   let lastErr: any = null;
 
   for (const url of endpoints) {
     try {
+      if (!isHttpUrl(url)) continue;
+      console.log('[predict] POST', url);
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 90_000); // 90s
       const resp = await fetch(url, { method: 'POST', body: form, signal: controller.signal });
@@ -415,6 +429,7 @@ async function callPredict(uri: string, lat?: number, lon?: number) {
         top3: Array.isArray(data.top3) ? data.top3 : [],
       };
     } catch (e) {
+      console.warn('[predict] failed on', url, e);
       lastErr = e;
     }
   }
@@ -429,9 +444,24 @@ const styles = StyleSheet.create({
   // former container; keep padding & alignment but remove solid bg
   overlay: { alignItems: 'center', padding: 40, flexGrow: 1 },
 
-  image: { width: 300, height: 200, borderRadius: 5, marginBottom: 10, borderWidth: 2, borderColor: '#66bb6a' },
+  image: {
+    width: 300,
+    height: 200,
+    borderRadius: 5,
+    marginBottom: 10,
+    borderWidth: 2,
+    borderColor: '#66bb6a',
+  },
   speciesName: { fontSize: 30, fontWeight: '600', marginBottom: 8 },
-  topBox: { width: '100%', backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#c8e6c9', padding: 12, marginBottom: 10 },
+  topBox: {
+    width: '100%',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#c8e6c9',
+    padding: 12,
+    marginBottom: 10,
+  },
   topHeader: { fontWeight: '700', color: '#2e7d32', marginBottom: 6 },
   topRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 2 },
   topRowSpecies: { fontWeight: '500' },
@@ -440,6 +470,14 @@ const styles = StyleSheet.create({
   input: { borderWidth: 1, borderColor: '#ccc', borderRadius: 8, padding: 10, marginVertical: 10, width: '100%' },
   pickerContainer: { borderWidth: 1, borderColor: '#ccc', borderRadius: 8, marginVertical: 10, width: '100%', overflow: 'hidden' },
   picker: { width: '100%', height: 60 },
-  actionButton: { backgroundColor: '#66bb6a', paddingVertical: 12, paddingHorizontal: 25, borderRadius: 8, marginTop: 15, width: '100%', alignItems: 'center' },
+  actionButton: {
+    backgroundColor: '#66bb6a',
+    paddingVertical: 12,
+    paddingHorizontal: 25,
+    borderRadius: 8,
+    marginTop: 15,
+    width: '100%',
+    alignItems: 'center',
+  },
   actionButtonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
 });
