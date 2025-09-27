@@ -3,6 +3,7 @@ from fastapi import FastAPI, Depends, File, UploadFile
 from fastapi.security import HTTPBearer
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
+from backend.app.routes import audio, users, recordings, approvals, feedback, auth
 
 # Load env first
 load_dotenv()
@@ -60,12 +61,9 @@ def read_root():
 
 @app.get("/healthz")
 def healthz():
-
-    from fastapi import UploadFile, File
+    return {"ok": True}
 
 @app.post("/_debug_upload")
 async def _debug_upload(file: UploadFile = File(...)):
     data = await file.read()
     return {"filename": file.filename, "bytes": len(data)}
-
-    return {"ok": True}
