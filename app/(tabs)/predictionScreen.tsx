@@ -116,6 +116,8 @@ export default function PredictionScreen() {
   const [predictedSpecies, setPredictedSpecies] = useState('Bullfrog');
   const [confidenceInput, setConfidenceInput] = useState('');
   const [top3, setTop3] = useState<TopItem[]>([]);
+  const [role, setRole] = useState<'volunteer' | 'expert' | 'admin' | null>(null);
+  const [submitAsExpert, setSubmitAsExpert] = useState(false);
   const mountedRef = useRef(true);
 
   useEffect(() => {
@@ -125,6 +127,19 @@ export default function PredictionScreen() {
       if (sound) sound.unloadAsync().catch(() => {});
     };
   }, [sound]);
+
+  // fetch role if signed in (for expert fast-path toggle)
+  useEffect(() => {
+    (async () => {
+      try {
+        if (!auth.currentUser) return;
+        const snap = await getDoc(doc(db, 'users', auth.currentUser.uid));
+        setRole((snap.data()?.role ?? 'volunteer') as any);
+      } catch {
+        setRole('volunteer' as any);
+      }
+    })();
+  }, []);
 
   // Run the model once on mount (if we have an audio URI)
   useEffect(() => {
@@ -243,7 +258,7 @@ export default function PredictionScreen() {
           'Content-Type': contentType,
           Authorization: `Bearer ${idToken}`,
         },
-        uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+        // default upload type is binary
       });
 
       if (result.status < 200 || result.status >= 300) {
@@ -251,14 +266,24 @@ export default function PredictionScreen() {
         throw new Error(`Storage upload failed (${result.status})`);
       }
 
-      // 5) Write Firestore document
+      // 5) Write Firestore document — queue for Expert review or auto-approve for experts
       const recRef = doc(collection(db, 'recordings')); // auto ID
       const recordingId = recRef.id;
 
       const nowIso = new Date().toISOString();
       const audioURL = `/get-audio/${fileName}`; // legacy field; we also keep filePath
 
-      await setDoc(recRef, {
+      // normalized AI block for expert UI
+      const aiBlock = {
+        species: predictedSpecies || '',
+        confidence: score / 100,
+        top3: (top3 || []).map((t) => ({
+          species: t.species,
+          confidence: t.confidence > 1 ? Math.max(0, Math.min(1, t.confidence / 100)) : t.confidence,
+        })),
+      };
+
+      const baseDoc = {
         recordingId,
         createdBy: user.uid,
         userId: user.uid,
@@ -266,6 +291,7 @@ export default function PredictionScreen() {
         species: '',
         confidenceScore: score / 100,
         top3,
+        ai: aiBlock,
         fileName,
         filePath,
         contentType,
@@ -274,7 +300,6 @@ export default function PredictionScreen() {
           lat: Number.isFinite(lat) ? lat : 0,
           lng: Number.isFinite(lon) ? lon : 0,
         },
-        status: 'pending_analysis',
         history: [{ action: 'submitted', actorId: user.uid, timestamp: nowIso }],
         timestamp: serverTimestamp(),
         timestamp_iso: nowIso,
@@ -285,9 +310,31 @@ export default function PredictionScreen() {
           lastName,
           email: userEmail,
         },
-      });
+      };
 
-      Alert.alert('Submitted', 'Your recording was saved to Firebase.');
+      const isExpert = role === 'expert' || role === 'admin';
+
+      if (submitAsExpert && isExpert) {
+        // Expert fast-path: auto-approve and include expertReview metadata
+        await setDoc(recRef, {
+          ...baseDoc,
+          status: 'approved',
+          expertReview: {
+            species: predictedSpecies || '',
+            confidence: score / 100,
+            reviewer: { uid: user.uid, firstName, lastName },
+            reviewedAt: serverTimestamp(),
+          },
+        });
+        Alert.alert('Submitted', 'Your recording was saved and approved as an expert submission.');
+      } else {
+        // Volunteer/default path: send to expert queue
+        await setDoc(recRef, {
+          ...baseDoc,
+          status: 'needs_review',
+        });
+        Alert.alert('Submitted', 'Your recording was saved to Firebase and queued for expert review.');
+      }
     } catch (err: any) {
       console.log('Submit failed details:', { name: err?.name, code: err?.code, message: err?.message });
       Alert.alert('Submit failed', err?.message ?? String(err));
@@ -384,6 +431,19 @@ export default function PredictionScreen() {
           keyboardType="number-pad"
         />
 
+        {/* Expert-only fast path toggle */}
+        {(role === 'expert' || role === 'admin') && (
+          <View style={styles.expertBox}>
+            <Text style={{ fontWeight: '700', marginBottom: 8 }}>Expert Options</Text>
+            <TouchableOpacity onPress={() => setSubmitAsExpert(v => !v)} style={{ paddingVertical: 6 }}>
+              <Text>{submitAsExpert ? '☑' : '☐'} Submit as expert (skip review)</Text>
+            </TouchableOpacity>
+            <Text style={{ opacity: 0.7, marginTop: 4 }}>
+              If enabled, this submission is immediately marked approved with your expert review.
+            </Text>
+          </View>
+        )}
+
         <TouchableOpacity style={styles.actionButton} onPress={handleSubmit}>
           <Text style={styles.actionButtonText}>Submit</Text>
         </TouchableOpacity>
@@ -400,8 +460,6 @@ async function callPredict(uri: string, lat?: number, lon?: number) {
   if (typeof lat === 'number') form.append('lat', String(lat));
   if (typeof lon === 'number') form.append('lon', String(lon));
 
-  // Try multiple endpoints (common cause of "Network request failed" is using localhost
-  // from a real device; this tries the LAN IP and an alt path).
   const endpoints = [
     `${API_BASE}/predict`,
     `${API_BASE}/ml/predict`,
@@ -414,7 +472,7 @@ async function callPredict(uri: string, lat?: number, lon?: number) {
       if (!isHttpUrl(url)) continue;
       console.log('[predict] POST', url);
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 90_000); // 90s
+      const timer = setTimeout(() => controller.abort(), 90_000);
       const resp = await fetch(url, { method: 'POST', body: form, signal: controller.signal });
       clearTimeout(timer);
 
@@ -438,12 +496,8 @@ async function callPredict(uri: string, lat?: number, lon?: number) {
 
 /* ---------------- styles ---------------- */
 const styles = StyleSheet.create({
-  // background image wrapper (same as other screens)
   background: { flex: 1, width: '100%', height: '100%' },
-
-  // former container; keep padding & alignment but remove solid bg
   overlay: { alignItems: 'center', padding: 40, flexGrow: 1 },
-
   image: {
     width: 300,
     height: 200,
@@ -480,4 +534,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   actionButtonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  expertBox: {
+    width: '100%',
+    borderWidth: 1,
+    borderColor: '#c8e6c9',
+    backgroundColor: '#ffffff',
+    padding: 12,
+    borderRadius: 10,
+    marginTop: 8,
+  },
 });
