@@ -8,15 +8,15 @@ import { Alert, Pressable, ScrollView, Text, TextInput, View } from 'react-nativ
 // 🔥 Firestore
 import {
     addDoc,
+    arrayUnion,
     collection,
     doc,
     getDoc,
     serverTimestamp,
     updateDoc,
 } from 'firebase/firestore';
-import { auth, db } from '../../../firebaseConfig'; // adjust path if your file lives elsewhere
+import { auth, db } from '../../../firebaseConfig';
 
-// --- simple demo taxonomy; replace with your shared list if you have one
 const SPECIES = [
   'American Bullfrog',
   'Northern Spring Peeper',
@@ -32,9 +32,9 @@ type RecordingDoc = {
   id: string;
   ai?: { species?: string; confidence?: number };
   userId?: string;
-  audioUrl?: string;   // preferred if present
-  audioURL?: string;   // your submit code saves this (backend route)
-  filePath?: string;   // gs path or storage key
+  audioUrl?: string;
+  audioURL?: string;
+  filePath?: string;
   status?: string;
   [k: string]: any;
 };
@@ -46,7 +46,7 @@ export default function SubmissionDetail() {
   const [rec, setRec] = useState<RecordingDoc | null>(null);
   const [species, setSpecies] = useState<string>('');
   const [conf, setConf] = useState<number>(0.8); // 0..1
-  const [confPct, setConfPct] = useState<number>(80); // 0..100 (UI only)
+  const [confPct, setConfPct] = useState<number>(80); // 0..100
   const [sound, setSound] = useState<Audio.Sound | null>(null);
   const mounted = useRef(true);
 
@@ -97,7 +97,10 @@ export default function SubmissionDetail() {
         await sound.replayAsync();
         return;
       }
-      const { sound: snd } = await Audio.Sound.createAsync({ uri: audioSourceUri }, { shouldPlay: true });
+      const { sound: snd } = await Audio.Sound.createAsync(
+        { uri: audioSourceUri },
+        { shouldPlay: true }
+      );
       setSound(snd);
     } catch (e) {
       console.warn('Audio play failed:', e);
@@ -111,53 +114,83 @@ export default function SubmissionDetail() {
       const data = snap.data() || {};
       const displayName = auth.currentUser?.displayName || '';
       const [fn = '', ln = ''] =
-        data.firstName && data.lastName ? [data.firstName, data.lastName] : displayName.split(' ');
+        data.firstName && data.lastName
+          ? [data.firstName, data.lastName]
+          : displayName.split(' ');
       return { firstName: fn, lastName: ln };
     } catch {
       return { firstName: '', lastName: '' };
     }
   }
 
-  const writeAudit = async (finalStatus: 'approved' | 'discarded') => {
+  async function writeAudit(finalStatus: 'approved' | 'discarded') {
     if (!id || !rec) return;
+
     const reviewerId = auth.currentUser?.uid;
     if (!reviewerId) {
       Alert.alert('Not signed in', 'You must be signed in as an expert.');
       return;
     }
+
     const { firstName, lastName } = await getExpertIdentity(reviewerId);
 
-    // 1) update the recording document
-    await updateDoc(doc(db, 'recordings', id), {
+    // Normalize confidence & explicit decision label for logs/rollups
+    const safeConf = Math.max(0, Math.min(1, conf));
+    const decision = finalStatus === 'approved' ? 'approved' : 'rejected'; // keep 'discarded' in status if you prefer
+
+    // --- 1) Update the recording document
+    const patch: any = {
       expertReview: {
         species,
-        confidence: conf,
+        confidence: safeConf,
         reviewer: { uid: reviewerId, firstName, lastName },
         reviewedAt: serverTimestamp(),
       },
       status: finalStatus,
-    });
+      lastUpdated: serverTimestamp(),
+      history: arrayUnion({
+        action: 'expert_review',
+        actorId: reviewerId,
+        decision, // explicit decision for history queries
+        species,
+        confidence: safeConf,
+        timestamp: new Date().toISOString(), // client ISO for debugging
+        serverTime: serverTimestamp(), // authoritative time for ordering
+      }),
+    };
 
-    // 2) append to per-recording history
+    if (finalStatus === 'approved') {
+      // Convenience top-level fields for public consumption / volunteer UI
+      patch.species = species;
+      patch.confidenceScore = safeConf;
+    }
+
+    await updateDoc(doc(db, 'recordings', id), patch);
+
+    // --- 2) Append to reviews subcollection
     await addDoc(collection(db, 'recordings', id, 'reviews'), {
       species,
-      confidence: conf,
+      confidence: safeConf,
       reviewer: { uid: reviewerId, firstName, lastName },
       reviewedAt: serverTimestamp(),
+      status: finalStatus,
+      decision, // mirror for quick admin reads
     });
 
-    // 3) approvals for admin queries
+    // --- 3) Approvals rollup (admin-friendly)
     await addDoc(collection(db, 'approvals'), {
       recordingId: id,
       volunteerId: rec.userId ?? null,
       expert: { uid: reviewerId, firstName, lastName },
       finalSpecies: species,
-      confidence: conf,
-      status: finalStatus,
+      confidence: safeConf,
+      status: finalStatus, // keep if you query by status
+      decision,           // and also decision for clarity
+      createdAt: serverTimestamp(), // stable sort key
       reviewedAt: serverTimestamp(),
     });
 
-    // 4) admin_logs
+    // --- 4) Admin logs
     await addDoc(collection(db, 'admin_logs'), {
       action: 'expertReview',
       actorId: reviewerId,
@@ -165,13 +198,17 @@ export default function SubmissionDetail() {
         recordingId: id,
         volunteerId: rec.userId ?? null,
         finalSpecies: species,
-        confidence: conf,
-        note: finalStatus === 'approved' ? 'Expert verified submission' : 'Expert discarded submission',
+        confidence: safeConf,
+        decision,
+        note:
+          finalStatus === 'approved'
+            ? 'Expert verified submission'
+            : 'Expert discarded submission',
       },
       success: true,
       timestamp: serverTimestamp(),
     });
-  };
+  }
 
   const onSave = async () => {
     if (!species) {
@@ -197,37 +234,67 @@ export default function SubmissionDetail() {
     }
   };
 
-  if (!rec) return <View style={{ padding: 16 }}><Text>Loading…</Text></View>;
+  if (!rec)
+    return (
+      <View style={{ padding: 16 }}>
+        <Text>Loading…</Text>
+      </View>
+    );
 
   return (
     <ScrollView contentContainerStyle={{ padding: 16, gap: 16 }}>
-      <Text style={{ fontSize: 18, fontWeight: '700' }}>Submission {rec.id}</Text>
+      <Text style={{ fontSize: 18, fontWeight: '700' }}>
+        Submission {rec.id}
+      </Text>
 
       <View style={{ gap: 4 }}>
         <Text>AI Species: {rec.ai?.species ?? '—'}</Text>
-        <Text>AI Confidence: {typeof rec.ai?.confidence === 'number' ? Math.round(rec.ai.confidence * 100) + '%' : '—'}</Text>
+        <Text>
+          AI Confidence:{' '}
+          {typeof rec.ai?.confidence === 'number'
+            ? Math.round(rec.ai.confidence * 100) + '%'
+            : '—'}
+        </Text>
       </View>
 
-      <Pressable onPress={play} style={{ padding: 12, borderRadius: 12, borderWidth: 1, alignSelf: 'flex-start' }}>
+      <Pressable
+        onPress={play}
+        style={{
+          padding: 12,
+          borderRadius: 12,
+          borderWidth: 1,
+          alignSelf: 'flex-start',
+        }}
+      >
         <Text>Play Audio</Text>
       </Pressable>
 
       <View style={{ gap: 6 }}>
         <Text style={{ fontWeight: '600' }}>Final Species (Expert)</Text>
         <Picker selectedValue={species} onValueChange={setSpecies}>
-          {SPECIES.map(s => <Picker.Item label={s} value={s} key={s} />)}
+          {SPECIES.map((s) => (
+            <Picker.Item label={s} value={s} key={s} />
+          ))}
         </Picker>
       </View>
 
-      {/* Confidence without slider: chips + numeric input */}
+      {/* Confidence (chips + numeric input) */}
       <Text style={{ fontWeight: '600' }}>Expert Confidence: {confPct}%</Text>
 
       <View style={{ flexDirection: 'row', gap: 8, marginVertical: 8 }}>
-        {quickLevels.map(l => (
+        {quickLevels.map((l) => (
           <Pressable
             key={l.label}
-            onPress={() => { setConf(l.v); setConfPct(Math.round(l.v * 100)); }}
-            style={{ paddingVertical: 6, paddingHorizontal: 12, borderRadius: 12, borderWidth: 1 }}
+            onPress={() => {
+              setConf(l.v);
+              setConfPct(Math.round(l.v * 100));
+            }}
+            style={{
+              paddingVertical: 6,
+              paddingHorizontal: 12,
+              borderRadius: 12,
+              borderWidth: 1,
+            }}
           >
             <Text>{l.label}</Text>
           </Pressable>
@@ -250,10 +317,16 @@ export default function SubmissionDetail() {
       </View>
 
       <View style={{ flexDirection: 'row', gap: 12, marginTop: 12 }}>
-        <Pressable onPress={onSave} style={{ padding: 12, borderWidth: 1, borderRadius: 12 }}>
+        <Pressable
+          onPress={onSave}
+          style={{ padding: 12, borderWidth: 1, borderRadius: 12 }}
+        >
           <Text>Save Review</Text>
         </Pressable>
-        <Pressable onPress={onDiscard} style={{ padding: 12, borderWidth: 1, borderRadius: 12 }}>
+        <Pressable
+          onPress={onDiscard}
+          style={{ padding: 12, borderWidth: 1, borderRadius: 12 }}
+        >
           <Text>Discard</Text>
         </Pressable>
       </View>
