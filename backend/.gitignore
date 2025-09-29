@@ -1,15 +1,19 @@
 # Ignore environment config and secrets
 .env
 
-# Ignore compiled Python files
+# Python cache
 __pycache__/
 *.pyc
 
 # macOS system files
 .DS_Store
 
-../uploaded_audios/
-
-# Ignore Firebase key and uploaded files
-backend/serviceAccountKey.json
+# Uploaded audio files (local only)
 uploaded_audios/
+
+# Firebase service account keys
+backend/keys/*.json
+backend/serviceAccountKey.json
+
+# Local environment configs
+.env*
