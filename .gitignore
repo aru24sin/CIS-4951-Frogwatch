@@ -44,3 +44,5 @@ __pycache__/
 *.pyc
 backend/keys/*.json
 backend/*.json
+backend/keys/*.json
+backend/*.json
