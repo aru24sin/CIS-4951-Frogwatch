@@ -42,3 +42,5 @@ backend/keys/frogwatch-service.json
 .env
 __pycache__/
 *.pyc
+backend/keys/*.json
+backend/*.json
