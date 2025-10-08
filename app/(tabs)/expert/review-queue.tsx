@@ -2,7 +2,7 @@
 import { Link } from 'expo-router';
 import { collection, limit, onSnapshot, orderBy, query, where } from 'firebase/firestore';
 import { useEffect, useState } from 'react';
-import { FlatList, Pressable, Text, View } from 'react-native';
+import { ActivityIndicator, FlatList, Pressable, Text, View } from 'react-native';
 import { db } from '../../firebaseConfig';
 
 type Rec = {
@@ -10,46 +10,59 @@ type Rec = {
   ai?: { species?: string; confidence?: number };
   predictedSpecies?: string;
   status: string;
-  timestamp?: any; // serverTimestamp written on create
+  timestamp?: any;
 };
 
 export default function ReviewQueue() {
   const [items, setItems] = useState<Rec[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    const ref = collection(db, 'recordings');
     const q = query(
-      collection(db, 'recordings'),
-      where('status', '==', 'needs_review'), // only queued items
-      orderBy('timestamp', 'desc'),          // newest first
+      ref,
+      where('status', '==', 'needs_review'),
+      orderBy('timestamp', 'desc'),
       limit(50)
     );
+
     const unsub = onSnapshot(q, (snap) => {
-      setItems(snap.docs.map(d => ({ id: d.id, ...(d.data() as any) })));
+      const rows: Rec[] = [];
+      snap.forEach((d) => rows.push({ id: d.id, ...(d.data() as any) }));
+      setItems(rows);
+      setLoading(false);
     });
+
     return () => unsub();
   }, []);
 
   return (
-    <View style={{ padding: 16 }}>
-      <Text style={{ fontSize: 20, fontWeight: '600', marginBottom: 12 }}>Review Queue</Text>
+    <View style={{ flex: 1, padding: 16 }}>
+      <Text style={{ fontSize: 20, fontWeight: '700', marginBottom: 12 }}>Review Queue</Text>
+      {loading && <ActivityIndicator />}
+
       <FlatList
         data={items}
-        keyExtractor={(it) => it.id}
+        keyExtractor={(item) => item.id}
+        ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
         renderItem={({ item }) => {
-          const aiName = item.ai?.species ?? item.predictedSpecies ?? '—';
-          const aiConf = Math.round(((item.ai?.confidence ?? 0) * 100));
+          const aiName = item.ai?.species || item.predictedSpecies || '—';
+          const aiConf = item.ai?.confidence != null
+            ? Math.round(Math.max(0, Math.min(1, item.ai.confidence)) * 100)
+            : '—';
+
           return (
-            <Link href={`./submission/${item.id}`} asChild>
-              <Pressable style={{ padding: 12, borderWidth: 1, borderRadius: 12, marginBottom: 8 }}>
-                <Text>ID: {item.id}</Text>
-                <Text>AI: {aiName} ({aiConf}%)</Text>
-                <Text>Status: {item.status}</Text>
+            <Link href={{ pathname: './submission/[id]', params: { id: item.id } }} asChild>
+              <Pressable style={{ padding: 12, borderRadius: 12, borderWidth: 1 }}>
+                <Text style={{ fontWeight: '600' }}>{aiName}</Text>
+                <Text style={{ opacity: 0.8 }}>AI confidence: {aiConf}%</Text>
+                <Text style={{ opacity: 0.6, marginTop: 4 }}>ID: {item.id}</Text>
               </Pressable>
             </Link>
           );
         }}
         ListEmptyComponent={
-          <Text style={{ opacity: 0.7 }}>No submissions waiting for review.</Text>
+          !loading ? <Text style={{ opacity: 0.7 }}>No submissions waiting for review.</Text> : null
         }
       />
     </View>

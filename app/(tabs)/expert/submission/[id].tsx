@@ -1,333 +1,393 @@
 // app/(tabs)/expert/submission/[id].tsx
-import { Picker } from '@react-native-picker/picker';
 import { Audio } from 'expo-av';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-
-// 🔥 Firestore
 import {
-    addDoc,
-    arrayUnion,
-    collection,
-    doc,
-    getDoc,
-    serverTimestamp,
-    updateDoc,
+  addDoc,
+  collection,
+  doc,
+  getDoc,
+  serverTimestamp,
+  updateDoc,
 } from 'firebase/firestore';
-import { auth, db } from '../../../firebaseConfig';
-
-const SPECIES = [
-  'American Bullfrog',
-  'Northern Spring Peeper',
-  'Eastern Gray Treefrog',
-  'Green Frog',
-  'Wood Frog',
-  'Northern Leopard Frog',
-  'American Toad',
-  'Midland Chorus Frog',
-];
+import { getDownloadURL, ref as storageRef } from 'firebase/storage';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Alert, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { auth, db, storage } from '../../../firebaseConfig';
 
 type RecordingDoc = {
-  id: string;
-  ai?: { species?: string; confidence?: number };
-  userId?: string;
+  userId: string;
+  status: 'needs_review' | 'approved' | 'discarded';
+  timestamp?: any;
+  // Audio path can be a direct URL or a Storage path like 'recordings/abc.m4a'
   audioUrl?: string;
-  audioURL?: string;
-  filePath?: string;
-  status?: string;
-  [k: string]: any;
+  audioPath?: string;
+  // AI helper fields (your schema may use ai.species or predictedSpecies)
+  ai?: { species?: string; confidence?: number };
+  predictedSpecies?: string;
+  // Optional existing expert fields:
+  expertSpecies?: string;
+  expertConfidence?: number;
+  notes?: string;
 };
 
-export default function SubmissionDetail() {
-  const router = useRouter();
+export default function ExpertSubmissionDetails() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const router = useRouter();
 
-  const [rec, setRec] = useState<RecordingDoc | null>(null);
-  const [species, setSpecies] = useState<string>('');
-  const [conf, setConf] = useState<number>(0.8); // 0..1
-  const [confPct, setConfPct] = useState<number>(80); // 0..100
-  const [sound, setSound] = useState<Audio.Sound | null>(null);
-  const mounted = useRef(true);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
 
-  const quickLevels = useMemo(
-    () => [
-      { label: 'Low', v: 0.4 },
-      { label: 'Med', v: 0.7 },
-      { label: 'High', v: 0.9 },
-    ],
-    []
+  const [record, setRecord] = useState<RecordingDoc | null>(null);
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+
+  const [species, setSpecies] = useState('');
+  const [confidenceStr, setConfidenceStr] = useState(''); // 0–100 as string for simple input
+  const [notes, setNotes] = useState('');
+
+  const soundRef = useRef<Audio.Sound | null>(null);
+  const [playing, setPlaying] = useState(false);
+
+  const aiSpecies = useMemo(
+    () => record?.ai?.species || record?.predictedSpecies || '',
+    [record]
   );
+  const aiConfidencePct = useMemo(() => {
+    const c = record?.ai?.confidence;
+    if (typeof c === 'number' && !Number.isNaN(c)) {
+      // Assuming c is 0..1
+      return Math.round(Math.max(0, Math.min(1, c)) * 100);
+    }
+    return null;
+  }, [record]);
 
+  // Load document + audio URL
   useEffect(() => {
-    mounted.current = true;
+    let alive = true;
+
     (async () => {
-      if (!id) return;
-      const snap = await getDoc(doc(db, 'recordings', id));
-      const data = snap.data() as any;
-      if (!mounted.current) return;
-      const defaultSpecies = data?.ai?.species || '';
-      setRec({ id: snap.id, ...data });
-      setSpecies(defaultSpecies);
-      if (typeof data?.ai?.confidence === 'number') {
-        const v = Math.max(0, Math.min(1, data.ai.confidence));
-        setConf(v);
-        setConfPct(Math.round(v * 100));
+      try {
+        if (!id) {
+          Alert.alert('Missing ID', 'No submission id provided.');
+          return;
+        }
+        const snap = await getDoc(doc(db, 'recordings', id));
+        if (!snap.exists()) {
+          Alert.alert('Not found', 'Submission does not exist.');
+          return;
+        }
+        const data = snap.data() as RecordingDoc;
+        if (!alive) return;
+        setRecord(data);
+
+        // Pre-fill editable fields with either past expert choices or AI suggestion
+        setSpecies((data.expertSpecies || data.ai?.species || data.predictedSpecies || '').trim());
+        const confInit =
+          data.expertConfidence != null
+            ? Math.round(Number(data.expertConfidence) * 100)
+            : aiConfidencePct ?? '';
+        setConfidenceStr(confInit === '' ? '' : String(confInit));
+        setNotes(data.notes || '');
+
+        // Resolve audio URL
+        let url: string | null = null;
+        if (data.audioUrl && data.audioUrl.startsWith('http')) {
+          url = data.audioUrl;
+        } else if (data.audioPath) {
+          url = await getDownloadURL(storageRef(storage, data.audioPath));
+        }
+        if (!alive) return;
+        setAudioUrl(url || null);
+      } catch (e) {
+        console.error(e);
+        Alert.alert('Error', 'Failed to load submission.');
+      } finally {
+        if (alive) setLoading(false);
       }
     })();
+
     return () => {
-      mounted.current = false;
-      sound?.unloadAsync?.();
+      alive = false;
     };
-  }, [id]);
+  }, [id, aiConfidencePct]);
 
+  // Cleanup sound on unmount
   useEffect(() => {
-    setConfPct(Math.round((conf ?? 0.8) * 100));
-  }, [conf]);
+    return () => {
+      (async () => {
+        if (soundRef.current) {
+          try {
+            await soundRef.current.unloadAsync();
+          } catch {}
+          soundRef.current = null;
+        }
+      })();
+    };
+  }, []);
 
-  const audioSourceUri = rec?.audioUrl || rec?.audioURL || '';
+  const loadAndPlay = useCallback(async () => {
+    if (!audioUrl) return;
 
-  const play = async () => {
-    if (!audioSourceUri) {
-      Alert.alert('No audio', 'This submission has no playable audio URL.');
+    // Toggle: if currently playing, pause
+    if (soundRef.current && playing) {
+      try {
+        await soundRef.current.pauseAsync();
+        setPlaying(false);
+      } catch (e) {
+        console.error(e);
+      }
       return;
     }
-    try {
-      if (sound) {
-        await sound.replayAsync();
-        return;
+
+    // If we already have a sound loaded but not playing, just play
+    if (soundRef.current && !playing) {
+      try {
+        await soundRef.current.playAsync();
+        setPlaying(true);
+      } catch (e) {
+        console.error(e);
       }
-      const { sound: snd } = await Audio.Sound.createAsync(
-        { uri: audioSourceUri },
-        { shouldPlay: true }
-      );
-      setSound(snd);
+      return;
+    }
+
+    // Fresh load
+    try {
+      const { sound } = await Audio.Sound.createAsync({ uri: audioUrl });
+      soundRef.current = sound;
+      sound.setOnPlaybackStatusUpdate((status) => {
+        if (!status.isLoaded) return;
+        if (status.didJustFinish) {
+          setPlaying(false);
+        }
+      });
+      await sound.playAsync();
+      setPlaying(true);
     } catch (e) {
-      console.warn('Audio play failed:', e);
+      console.error(e);
       Alert.alert('Playback error', 'Could not play the audio file.');
     }
-  };
+  }, [audioUrl, playing]);
 
-  async function getExpertIdentity(uid: string) {
-    try {
-      const snap = await getDoc(doc(db, 'users', uid));
-      const data = snap.data() || {};
-      const displayName = auth.currentUser?.displayName || '';
-      const [fn = '', ln = ''] =
-        data.firstName && data.lastName
-          ? [data.firstName, data.lastName]
-          : displayName.split(' ');
-      return { firstName: fn, lastName: ln };
-    } catch {
-      return { firstName: '', lastName: '' };
-    }
-  }
+  // Common review writer
+  async function writeAudit(action: 'approved' | 'discarded') {
+    if (!id) throw new Error('Missing id');
+    const user = auth.currentUser;
+    const reviewerId = user?.uid || 'unknown';
 
-  async function writeAudit(finalStatus: 'approved' | 'discarded') {
-    if (!id || !rec) return;
+    const confPct = confidenceStr.trim() === '' ? null : Number(confidenceStr);
+    const conf01 =
+      confPct == null || Number.isNaN(confPct)
+        ? null
+        : Math.max(0, Math.min(100, confPct)) / 100;
 
-    const reviewerId = auth.currentUser?.uid;
-    if (!reviewerId) {
-      Alert.alert('Not signed in', 'You must be signed in as an expert.');
-      return;
-    }
-
-    const { firstName, lastName } = await getExpertIdentity(reviewerId);
-
-    // Normalize confidence & explicit decision label for logs/rollups
-    const safeConf = Math.max(0, Math.min(1, conf));
-    const decision = finalStatus === 'approved' ? 'approved' : 'rejected'; // keep 'discarded' in status if you prefer
-
-    // --- 1) Update the recording document
-    const patch: any = {
-      expertReview: {
-        species,
-        confidence: safeConf,
-        reviewer: { uid: reviewerId, firstName, lastName },
-        reviewedAt: serverTimestamp(),
-      },
-      status: finalStatus,
-      lastUpdated: serverTimestamp(),
-      history: arrayUnion({
-        action: 'expert_review',
-        actorId: reviewerId,
-        decision, // explicit decision for history queries
-        species,
-        confidence: safeConf,
-        timestamp: new Date().toISOString(), // client ISO for debugging
-        serverTime: serverTimestamp(), // authoritative time for ordering
-      }),
-    };
-
-    if (finalStatus === 'approved') {
-      // Convenience top-level fields for public consumption / volunteer UI
-      patch.species = species;
-      patch.confidenceScore = safeConf;
-    }
-
-    await updateDoc(doc(db, 'recordings', id), patch);
-
-    // --- 2) Append to reviews subcollection
+    // 1) Add a review event under subcollection
     await addDoc(collection(db, 'recordings', id, 'reviews'), {
-      species,
-      confidence: safeConf,
-      reviewer: { uid: reviewerId, firstName, lastName },
-      reviewedAt: serverTimestamp(),
-      status: finalStatus,
-      decision, // mirror for quick admin reads
+      action,
+      species: species?.trim() || null,
+      confidence: conf01,
+      reviewerId,
+      notes: notes?.trim() || null,
+      createdAt: serverTimestamp(),
     });
 
-    // --- 3) Approvals rollup (admin-friendly)
-    await addDoc(collection(db, 'approvals'), {
-      recordingId: id,
-      volunteerId: rec.userId ?? null,
-      expert: { uid: reviewerId, firstName, lastName },
-      finalSpecies: species,
-      confidence: safeConf,
-      status: finalStatus, // keep if you query by status
-      decision,           // and also decision for clarity
-      createdAt: serverTimestamp(), // stable sort key
+    // 2) Update the parent doc
+    const updates: any = {
+      status: action,
       reviewedAt: serverTimestamp(),
-    });
-
-    // --- 4) Admin logs
-    await addDoc(collection(db, 'admin_logs'), {
-      action: 'expertReview',
-      actorId: reviewerId,
-      details: {
-        recordingId: id,
-        volunteerId: rec.userId ?? null,
-        finalSpecies: species,
-        confidence: safeConf,
-        decision,
-        note:
-          finalStatus === 'approved'
-            ? 'Expert verified submission'
-            : 'Expert discarded submission',
-      },
-      success: true,
-      timestamp: serverTimestamp(),
-    });
+      reviewedBy: reviewerId,
+      // Keep the latest expert choice on parent doc for quick querying
+      expertSpecies: species?.trim() || null,
+      expertConfidence: conf01,
+      expertNotes: notes?.trim() || null,
+    };
+    // If discarded, you might want to null out expertSpecies/confidence—here we keep values if provided.
+    await updateDoc(doc(db, 'recordings', id), updates);
   }
 
-  const onSave = async () => {
-    if (!species) {
-      Alert.alert('Missing species', 'Please select the final species.');
+  async function onSave() {
+    if (saving) return;
+    if (!species?.trim()) {
+      Alert.alert('Missing species', 'Please select or type a species before approving.');
       return;
     }
+    setSaving(true);
     try {
       await writeAudit('approved');
+      Alert.alert('Saved', 'Your review has been recorded.');
       router.back();
-    } catch (e: any) {
-      console.error('Save review failed', e);
-      Alert.alert('Error', e?.message || 'Could not save review.');
+    } catch (e) {
+      console.error(e);
+      Alert.alert('Error', 'Could not save review.');
+    } finally {
+      setSaving(false);
     }
-  };
+  }
 
-  const onDiscard = async () => {
+  async function onDiscard() {
+    if (saving) return;
+    setSaving(true);
     try {
       await writeAudit('discarded');
+      Alert.alert('Discarded', 'Submission was marked as discarded.');
       router.back();
-    } catch (e: any) {
-      console.error('Discard failed', e);
-      Alert.alert('Error', e?.message || 'Could not discard.');
+    } catch (e) {
+      console.error(e);
+      Alert.alert('Error', 'Could not discard.');
+    } finally {
+      setSaving(false);
     }
-  };
+  }
 
-  if (!rec)
+  if (loading) {
     return (
-      <View style={{ padding: 16 }}>
-        <Text>Loading…</Text>
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+        <ActivityIndicator />
+        <Text style={{ marginTop: 8, opacity: 0.7 }}>Loading submission…</Text>
       </View>
     );
+  }
+
+  if (!record) {
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+        <Text>Submission not found.</Text>
+      </View>
+    );
+  }
 
   return (
-    <ScrollView contentContainerStyle={{ padding: 16, gap: 16 }}>
-      <Text style={{ fontSize: 18, fontWeight: '700' }}>
-        Submission {rec.id}
-      </Text>
+    <ScrollView contentContainerStyle={{ padding: 16 }}>
+      <Text style={{ fontSize: 22, fontWeight: '700', marginBottom: 12 }}>Review Submission</Text>
 
-      <View style={{ gap: 4 }}>
-        <Text>AI Species: {rec.ai?.species ?? '—'}</Text>
+      {/* AI summary */}
+      <View style={{ borderWidth: 1, borderRadius: 12, padding: 12, marginBottom: 14 }}>
+        <Text style={{ fontWeight: '600' }}>AI suggestion</Text>
+        <Text style={{ marginTop: 4 }}>
+          Species: <Text style={{ fontWeight: '600' }}>{aiSpecies || '—'}</Text>
+        </Text>
         <Text>
-          AI Confidence:{' '}
-          {typeof rec.ai?.confidence === 'number'
-            ? Math.round(rec.ai.confidence * 100) + '%'
-            : '—'}
+          Confidence: <Text style={{ fontWeight: '600' }}>
+            {aiConfidencePct != null ? `${aiConfidencePct}%` : '—'}
+          </Text>
+        </Text>
+        <Text style={{ opacity: 0.7, marginTop: 4 }}>ID: {id}</Text>
+      </View>
+
+      {/* Audio controls */}
+      <View style={{ borderWidth: 1, borderRadius: 12, padding: 12, marginBottom: 14 }}>
+        <Text style={{ fontWeight: '600', marginBottom: 8 }}>Audio</Text>
+        {audioUrl ? (
+          <Pressable
+            onPress={loadAndPlay}
+            style={{
+              padding: 12,
+              borderWidth: 1,
+              borderRadius: 10,
+              alignSelf: 'flex-start',
+              opacity: saving ? 0.5 : 1,
+            }}
+            disabled={saving}
+          >
+            <Text>{playing ? 'Pause' : 'Play'}</Text>
+          </Pressable>
+        ) : (
+          <Text style={{ opacity: 0.7 }}>No audio URL available.</Text>
+        )}
+      </View>
+
+      {/* Species input */}
+      <View style={{ borderWidth: 1, borderRadius: 12, padding: 12, marginBottom: 14 }}>
+        <Text style={{ fontWeight: '600' }}>Species (required to approve)</Text>
+        <TextInput
+          value={species}
+          onChangeText={setSpecies}
+          placeholder={aiSpecies ? `e.g., ${aiSpecies}` : 'Enter species'}
+          autoCapitalize="words"
+          style={{
+            marginTop: 8,
+            borderWidth: 1,
+            borderRadius: 8,
+            padding: 10,
+          }}
+          editable={!saving}
+        />
+      </View>
+
+      {/* Confidence input */}
+      <View style={{ borderWidth: 1, borderRadius: 12, padding: 12, marginBottom: 14 }}>
+        <Text style={{ fontWeight: '600' }}>Your confidence (0–100)</Text>
+        <TextInput
+          value={confidenceStr}
+          onChangeText={(txt) => {
+            // keep only digits
+            const digits = txt.replace(/[^\d]/g, '');
+            setConfidenceStr(digits);
+          }}
+          placeholder={aiConfidencePct != null ? String(aiConfidencePct) : 'e.g., 75'}
+          keyboardType="numeric"
+          maxLength={3}
+          style={{
+            marginTop: 8,
+            borderWidth: 1,
+            borderRadius: 8,
+            padding: 10,
+            width: 120,
+          }}
+          editable={!saving}
+        />
+        <Text style={{ opacity: 0.6, marginTop: 6 }}>
+          (We'll store this as 0–1 under <Text style={{ fontWeight: '600' }}>expertConfidence</Text>.)
         </Text>
       </View>
 
-      <Pressable
-        onPress={play}
-        style={{
-          padding: 12,
-          borderRadius: 12,
-          borderWidth: 1,
-          alignSelf: 'flex-start',
-        }}
-      >
-        <Text>Play Audio</Text>
-      </Pressable>
-
-      <View style={{ gap: 6 }}>
-        <Text style={{ fontWeight: '600' }}>Final Species (Expert)</Text>
-        <Picker selectedValue={species} onValueChange={setSpecies}>
-          {SPECIES.map((s) => (
-            <Picker.Item label={s} value={s} key={s} />
-          ))}
-        </Picker>
-      </View>
-
-      {/* Confidence (chips + numeric input) */}
-      <Text style={{ fontWeight: '600' }}>Expert Confidence: {confPct}%</Text>
-
-      <View style={{ flexDirection: 'row', gap: 8, marginVertical: 8 }}>
-        {quickLevels.map((l) => (
-          <Pressable
-            key={l.label}
-            onPress={() => {
-              setConf(l.v);
-              setConfPct(Math.round(l.v * 100));
-            }}
-            style={{
-              paddingVertical: 6,
-              paddingHorizontal: 12,
-              borderRadius: 12,
-              borderWidth: 1,
-            }}
-          >
-            <Text>{l.label}</Text>
-          </Pressable>
-        ))}
-      </View>
-
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+      {/* Notes */}
+      <View style={{ borderWidth: 1, borderRadius: 12, padding: 12, marginBottom: 16 }}>
+        <Text style={{ fontWeight: '600' }}>Notes (optional)</Text>
         <TextInput
-          style={{ borderWidth: 1, borderRadius: 8, padding: 10, width: 110 }}
-          keyboardType="number-pad"
-          value={String(confPct)}
-          onChangeText={(t) => {
-            const n = Math.max(0, Math.min(100, parseInt(t || '0', 10)));
-            setConfPct(n);
-            setConf(n / 100);
+          value={notes}
+          onChangeText={setNotes}
+          placeholder="Any remarks about background noise, overlapping calls, etc."
+          multiline
+          numberOfLines={3}
+          style={{
+            marginTop: 8,
+            borderWidth: 1,
+            borderRadius: 8,
+            padding: 10,
+            minHeight: 80,
+            textAlignVertical: 'top',
           }}
-          placeholder="0–100"
+          editable={!saving}
         />
-        <Text>Set exact %</Text>
       </View>
 
-      <View style={{ flexDirection: 'row', gap: 12, marginTop: 12 }}>
+      {/* Action buttons */}
+      <View style={{ flexDirection: 'row', gap: 12 }}>
         <Pressable
           onPress={onSave}
-          style={{ padding: 12, borderWidth: 1, borderRadius: 12 }}
+          disabled={saving}
+          style={{
+            opacity: saving ? 0.5 : 1,
+            paddingVertical: 12,
+            paddingHorizontal: 16,
+            borderWidth: 1,
+            borderRadius: 12,
+          }}
         >
-          <Text>Save Review</Text>
+          <Text style={{ fontWeight: '600' }}>Save Review</Text>
         </Pressable>
+
         <Pressable
           onPress={onDiscard}
-          style={{ padding: 12, borderWidth: 1, borderRadius: 12 }}
+          disabled={saving}
+          style={{
+            opacity: saving ? 0.5 : 1,
+            paddingVertical: 12,
+            paddingHorizontal: 16,
+            borderWidth: 1,
+            borderRadius: 12,
+          }}
         >
-          <Text>Discard</Text>
+          <Text style={{ fontWeight: '600' }}>Discard</Text>
         </Pressable>
       </View>
     </ScrollView>
