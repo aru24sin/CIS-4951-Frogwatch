@@ -4,7 +4,7 @@ import { useRouter } from "expo-router";
 import { onAuthStateChanged } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import React, { useEffect, useState } from "react";
-import { Image, ImageBackground, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { ImageBackground, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { auth, db } from "../firebaseConfig";
 
 export default function HomeScreen() {
@@ -53,27 +53,20 @@ export default function HomeScreen() {
   const formattedDate = today.toLocaleDateString("en-US", { weekday: "long", day: "numeric", month: "long" });
 
   return (
-    <ImageBackground source={require("../../assets/images/gradient-background.png")} style={styles.background} resizeMode="cover">
+    <ImageBackground source={require("../../assets/images/homeBackground.png")} style={styles.background} resizeMode="cover">
       <ScrollView contentContainerStyle={styles.scrollContainer} showsVerticalScrollIndicator={false}>
         <View style={styles.overlay}>
           <View>
+
             <Text style={styles.hello}>Hello{fullName ? `, ${fullName}` : ","}</Text>
             <Text style={styles.date}>{formattedDate}</Text>
 
-            {/* Logo */}
-            <Image
-              source={require('../../assets/images/frog-umbrella-clipart-xl.png')}
-              style={styles.logo}
-            />
-
-            {/* Brand UNDER the logo */}
-            <Text style={styles.brand}>Frogwatch+</Text>
           </View>
 
           {/* Status + Buttons pinned to bottom */}
           <View style={styles.bottomSection}>
             <Text style={styles.status}>
-              Status: <Text style={{ color: "black" }}>Online</Text>
+              Status: <Text style={{ color: "white" }}>Online</Text>
             </Text>
 
             <View style={styles.grid}>
@@ -87,7 +80,7 @@ export default function HomeScreen() {
                 <Text style={styles.buttonText}>History</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity style={styles.button}>
+              <TouchableOpacity style={styles.button} onPress = {() => router.push("./mapHistoryScreen")}>
                 <Ionicons name="map" size={28} color="#ccff00" />
                 <Text style={styles.buttonText}>Map</Text>
               </TouchableOpacity>
@@ -119,8 +112,8 @@ const styles = StyleSheet.create({
   scrollContainer: { flexGrow: 1 },
   overlay: { flex: 1, paddingTop: 60, paddingHorizontal: 24, paddingBottom: 40, justifyContent: "space-between" },
 
-  hello: { marginTop: 20, fontSize: 32, fontWeight: "400", color: "#000" },
-  date: { fontSize: 32, fontWeight: "500", color: "#e3a300ff", marginBottom: 12 },
+  hello: { marginTop: 20, fontSize: 32, fontWeight: "400", color: "#f2f2f2ff" },
+  date: { fontSize: 32, fontWeight: "500", color: "#ccff00", marginBottom: 12 },
 
   logo: { width: 280, height: 280, resizeMode: 'contain', alignSelf: 'center', marginTop: 8 },
 
@@ -136,7 +129,7 @@ const styles = StyleSheet.create({
   },
 
   bottomSection: { marginTop: 20 },
-  status: { fontSize: 18, color: "#000", marginBottom: 20 },
+  status: { fontSize: 18, color: "#ffffffff", marginBottom: 20 },
   grid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" },
   button: {
     width: "32.5%",

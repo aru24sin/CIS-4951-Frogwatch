@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Audio } from 'expo-av';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
@@ -8,7 +8,7 @@ import {
   ActivityIndicator,
   Alert,
   Animated,
-  ImageBackground, // ⬅️ add this
+  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -154,7 +154,7 @@ export default function RecordScreen() {
     try {
       const info = await FileSystem.getInfoAsync(audioUri);
       if (!info.exists) {
-        Alert.alert('Audio missing', 'The recorded file is no longer available. Please re-record.');
+        Alert.alert('Audio missing', 'The recording is no longer available. Please re-record.');
         return;
       }
 
@@ -219,13 +219,9 @@ export default function RecordScreen() {
 
   if (isLoading || !location) {
     return (
-      <ImageBackground
-        source={require('../../assets/images/gradient-background.png')}
-        style={styles.background}
-        resizeMode="cover"
-      >
-        <ActivityIndicator size="large" style={{ marginTop: 50 }} />
-      </ImageBackground>
+      <View style={styles.background}>
+        <ActivityIndicator size="large" color="#fff" style={{ marginTop: 50 }} />
+      </View>
     );
   }
 
@@ -235,121 +231,223 @@ export default function RecordScreen() {
   });
 
   return (
-    <ImageBackground
-      source={require('../../assets/images/gradient-background.png')}
-      style={styles.background}
-      resizeMode="cover"
-    >
-      <View style={styles.overlay}>
-        {/* Header */}
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.push('./homeScreen')}>
-            <Ionicons name="arrow-back" size={32} color="#222" style={styles.icon} />
-          </TouchableOpacity>
-
-          <TouchableOpacity onPress={() => Alert.alert('Menu pressed')}>
-            <Ionicons name="menu" size={32} color="#222" style={styles.icon} />
-          </TouchableOpacity>
-        </View>
-
-        <Text style={styles.title}>Ready to record...</Text>
-
-        {/* Map */}
-        <View style={styles.mapContainer}>
-          <MapView
-            style={styles.map}
-            region={{
-              latitude: location.latitude,
-              longitude: location.longitude,
-              latitudeDelta: 0.01,
-              longitudeDelta: 0.01,
-            }}
-          >
-            <Marker coordinate={location} />
-          </MapView>
-        </View>
-
-        {/* Progress */}
-        <View style={styles.progressBarContainer}>
-          <Animated.View style={[styles.progressBar, { width: progressBarWidth }]} />
-        </View>
-        <Text style={styles.timerText}>{timer}s</Text>
-
-        {/* Record Button */}
-        {!audioUri && (
-          <TouchableOpacity style={styles.recordButton} onPress={toggleRecord}>
-            <View style={[styles.innerCircle, isRecording && { backgroundColor: '#c62828' }]} />
-          </TouchableOpacity>
-        )}
-
-        {/* Actions after recording */}
-        {audioUri && !isRecording && (
-          <View style={styles.actions}>
-            <TouchableOpacity style={styles.actionButton} onPress={playAudio}>
-              <Text style={styles.actionText}>Play/Replay Recording</Text>
+    <View style={styles.background}>
+      <ScrollView 
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.container}>
+          {/* Header */}
+          <View style={styles.header}>
+            <TouchableOpacity onPress={() => router.push('./homeScreen')} style={styles.iconButton}>
+              <Ionicons name="arrow-back" size={28} color="#fff" />
             </TouchableOpacity>
-            <TouchableOpacity style={styles.actionButton} onPress={reRecord}>
-              <Text style={styles.actionText}>Re-record</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.actionButton} onPress={upload}>
-              <Text style={styles.actionText}>Analyze Recording</Text>
+
+            <TouchableOpacity onPress={() => Alert.alert('Menu pressed')} style={styles.iconButton}>
+              <Ionicons name="menu" size={28} color="#fff" />
             </TouchableOpacity>
           </View>
-        )}
-      </View>
-    </ImageBackground>
+
+          {/* Title */}
+          <Text style={styles.title}>
+            {isRecording ? 'Listening...' : audioUri ? 'Recording Complete' : 'Listening...'}
+          </Text>
+
+          {/* Map Container */}
+          <View style={styles.mapContainer}>
+            <MapView
+              style={styles.map}
+              region={{
+                latitude: location.latitude,
+                longitude: location.longitude,
+                latitudeDelta: 0.01,
+                longitudeDelta: 0.01,
+              }}
+            >
+              <Marker coordinate={location}>
+                <View style={styles.markerCircle} />
+              </Marker>
+            </MapView>
+          </View>
+
+          {/* Progress Bar */}
+          <View style={styles.progressBarContainer}>
+            <Animated.View style={[styles.progressBar, { width: progressBarWidth }]} />
+          </View>
+
+          {/* Timer */}
+          <Text style={styles.timerText}>{timer}s</Text>
+
+          {/* Record Button */}
+          {!audioUri && (
+            <TouchableOpacity 
+              style={styles.recordButton} 
+              onPress={toggleRecord}
+              activeOpacity={0.8}
+            >
+              <View style={styles.recordButtonOuter}>
+                <View style={[styles.recordButtonInner, isRecording && styles.recordingActive]} />
+              </View>
+            </TouchableOpacity>
+          )}
+
+          {/* Actions after recording */}
+          {audioUri && !isRecording && (
+            <View style={styles.actions}>
+              <TouchableOpacity style={styles.actionButton} onPress={playAudio}>
+                <Text style={styles.actionText}>Play/Replay Recording</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.actionButton} onPress={reRecord}>
+                <Text style={styles.actionText}>Re-record</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.actionButton} onPress={upload}>
+                <Text style={styles.actionText}>Analyze Recording</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
+      </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  // background image wrapper
-  background: { flex: 1, width: '100%', height: '100%' },
-
-  // former container (no solid bg so gradient shows)
-  overlay: { flex: 1, alignItems: 'center' },
-
+  background: {
+    flex: 1,
+    backgroundColor: '#3F5A47',
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingBottom: 60,
+  },
+  container: {
+    alignItems: 'center',
+    paddingTop: 50,
+  },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     width: '100%',
-    padding: 20,
-    marginTop: 50,
+    paddingHorizontal: 20,
+    marginBottom: 30,
   },
-  icon: { backgroundColor: '#00000020', padding: 12, borderRadius: 50 },
-  title: { fontSize: 24, color: 'black', marginBottom: 20, alignSelf: 'flex-start', marginLeft: 20 },
-
-  mapContainer: { width: 320, height: 250, borderRadius: 20, overflow: 'hidden' },
-  map: { flex: 1 },
-
-  progressBarContainer: {
-    width: '90%',
-    height: 18,
-    backgroundColor: '#2D3E32',
-    borderRadius: 7,
-    marginTop: 40,
-  },
-  progressBar: { height: 14, backgroundColor: '#ef6d17ff', borderRadius: 7 },
-  timerText: { fontSize: 22, color: 'black', marginTop: 10 },
-
-  recordButton: {
-    marginTop: 30,
-    width: 90,
-    height: 90,
-    borderRadius: 45,
-    backgroundColor: '#222',
+  iconButton: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: 'rgba(0, 0, 0, 0.2)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  innerCircle: { width: 70, height: 70, borderRadius: 40, backgroundColor: 'red' },
-
-  actions: { marginTop: 20, width: '100%', alignItems: 'center' },
-  actionButton: {
-    backgroundColor: '#638B6F',
-    padding: 12,
-    borderRadius: 12,
-    width: '60%',
-    alignItems: 'center',
-    marginVertical: 5,
+  title: {
+    fontSize: 32,
+    fontWeight: '400',
+    color: '#ccff00',
+    marginBottom: 30,
+    letterSpacing: 0.5,
   },
-  actionText: { color: 'white', fontSize: 18, fontWeight: '600' },
+  mapContainer: {
+    width: '85%',
+    height: 350,
+    borderRadius: 20,
+    overflow: 'hidden',
+    backgroundColor: '#fff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  map: {
+    flex: 1,
+  },
+  markerCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#4a90e2',
+    borderWidth: 4,
+    borderColor: '#fff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  progressBarContainer: {
+    width: '85%',
+    height: 8,
+    backgroundColor: 'rgba(0, 0, 0, 0.2)',
+    borderRadius: 4,
+    marginTop: 30,
+    overflow: 'hidden',
+  },
+  progressBar: {
+    height: '100%',
+    backgroundColor: '#4a7c59',
+    borderRadius: 4,
+  },
+  timerText: {
+    fontSize: 28,
+    fontWeight: '400',
+    color: '#fff',
+    marginTop: 15,
+    letterSpacing: 1,
+  },
+  recordButton: {
+    marginTop: 30,
+    marginBottom: 20,
+  },
+  recordButtonOuter: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: '#2d3e34',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  recordButtonInner: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    backgroundColor: '#c93939',
+  },
+  recordingActive: {
+    backgroundColor: '#d32f2f',
+  },
+  actions: {
+    marginTop: 20,
+    marginBottom: 40,
+    width: '85%',
+    alignItems: 'center',
+  },
+  actionButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    width: '100%',
+    alignItems: 'center',
+    marginVertical: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  analyzeButton: {
+    backgroundColor: '#4a7c59',
+    borderColor: '#4a7c59',
+  },
+  actionText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '500',
+    letterSpacing: 0.3,
+  },
 });
