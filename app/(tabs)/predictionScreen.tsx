@@ -1,13 +1,13 @@
 // app/(tabs)/predictionScreen.tsx
+import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
 import { Audio } from 'expo-av';
 import Constants from 'expo-constants';
-import * as FileSystem from 'expo-file-system';
-import { useLocalSearchParams } from 'expo-router';
+import * as FileSystem from 'expo-file-system/legacy';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
-  Image,
   ImageBackground,
   NativeModules,
   ScrollView,
@@ -39,7 +39,7 @@ const speciesImageMap: Record<string, any> = {
 const placeholderImage = require('../../assets/frogs/placeholder.png');
 
 /* ---------------- dynamic API base (dev) ---------------- */
-const DEV_HOST_OVERRIDE = ''; // leave '' to auto-detect on LAN
+const DEV_HOST_OVERRIDE = '';
 
 function pickDevHost() {
   if (DEV_HOST_OVERRIDE) return DEV_HOST_OVERRIDE;
@@ -62,7 +62,7 @@ function pickDevHost() {
 
 export const API_BASE = __DEV__ ? `http://${pickDevHost()}:8000` : 'https://your-production-domain';
 
-/* ---------------- helpers (top-level; used by callPredict) ---------------- */
+/* ---------------- helpers ---------------- */
 function guessMime(uri: string): string {
   const lower = uri.toLowerCase();
   if (lower.endsWith('.wav')) return 'audio/wav';
@@ -81,7 +81,6 @@ function isHttpUrl(s?: string) {
   return !!s && /^https?:\/\//i.test(s);
 }
 
-/** Try to get a profile from Firestore users/{uid} and return name fields */
 async function getUserProfile(uid: string) {
   try {
     const snap = await getDoc(doc(db, 'users', uid));
@@ -90,7 +89,6 @@ async function getUserProfile(uid: string) {
   return null;
 }
 
-/** Dev-only auto sign-in if no user is present */
 async function ensureSignedIn() {
   if (auth.currentUser) return;
   if (!__DEV__) throw new Error('Not signed in. Please log in.');
@@ -103,9 +101,26 @@ async function ensureSignedIn() {
   await signInWithEmailAndPassword(auth, email, password);
 }
 
+// Reverse geocoding helper
+async function getCityFromCoords(lat: number, lon: number): Promise<string> {
+  try {
+    const response = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`
+    );
+    const data = await response.json();
+    const city = data.address?.city || data.address?.town || data.address?.village || 'Unknown Location';
+    const state = data.address?.state || '';
+    return state ? `${city}, ${state}` : city;
+  } catch (error) {
+    console.error('Geocoding error:', error);
+    return 'Unknown Location';
+  }
+}
+
 /* ---------------- component ---------------- */
 export default function PredictionScreen() {
   const params = useLocalSearchParams<{ audioUri?: string; lat?: string; lon?: string }>();
+  const router = useRouter();
   const audioUri = params.audioUri ?? '';
   const lat = Number(params.lat ?? NaN);
   const lon = Number(params.lon ?? NaN);
@@ -115,9 +130,12 @@ export default function PredictionScreen() {
   const [apiError, setApiError] = useState<string | null>(null);
   const [predictedSpecies, setPredictedSpecies] = useState('Bullfrog');
   const [confidenceInput, setConfidenceInput] = useState('');
+  const [notes, setNotes] = useState('');
   const [top3, setTop3] = useState<TopItem[]>([]);
   const [role, setRole] = useState<'volunteer' | 'expert' | 'admin' | null>(null);
   const [submitAsExpert, setSubmitAsExpert] = useState(false);
+  const [showEditOptions, setShowEditOptions] = useState(false);
+  const [locationCity, setLocationCity] = useState('Loading location...');
   const mountedRef = useRef(true);
 
   useEffect(() => {
@@ -128,7 +146,7 @@ export default function PredictionScreen() {
     };
   }, [sound]);
 
-  // fetch role if signed in (for expert fast-path toggle)
+  // fetch role if signed in
   useEffect(() => {
     (async () => {
       try {
@@ -141,7 +159,19 @@ export default function PredictionScreen() {
     })();
   }, []);
 
-  // Run the model once on mount (if we have an audio URI)
+  // Get city from coordinates
+  useEffect(() => {
+    (async () => {
+      if (isFinite(lat) && isFinite(lon)) {
+        const city = await getCityFromCoords(lat, lon);
+        setLocationCity(city);
+      } else {
+        setLocationCity('Unknown Location');
+      }
+    })();
+  }, [lat, lon]);
+
+  // Run the model once on mount
   useEffect(() => {
     (async () => {
       if (!audioUri) return;
@@ -177,13 +207,14 @@ export default function PredictionScreen() {
         if (mountedRef.current) setLoading(false);
       }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [audioUri]);
 
-  const speciesImage = useMemo(
-    () => speciesImageMap[predictedSpecies] || placeholderImage,
-    [predictedSpecies]
-  );
+  const backgroundSource = useMemo(() => {
+    if (predictedSpecies && speciesImageMap[predictedSpecies]) {
+      return speciesImageMap[predictedSpecies];
+    }
+    return null;
+  }, [predictedSpecies]);
 
   const handlePlay = async () => {
     if (!audioUri) return;
@@ -204,7 +235,6 @@ export default function PredictionScreen() {
     }
   };
 
-  /** SUBMIT: ensure auth -> upload to Storage (REST) -> write Firestore */
   const handleSubmit = async () => {
     const score = parseInt(confidenceInput, 10);
     if (Number.isNaN(score) || score < 0 || score > 100) {
@@ -219,12 +249,10 @@ export default function PredictionScreen() {
     try {
       setLoading(true);
 
-      // 1) Ensure we have a user
       await ensureSignedIn();
       const user = auth.currentUser!;
       const idToken = await user.getIdToken();
 
-      // 2) Optional profile (to denormalize names into recordings)
       const profile = await getUserProfile(user.uid);
       const firstName = profile?.firstName ?? '';
       const lastName = profile?.lastName ?? '';
@@ -232,7 +260,6 @@ export default function PredictionScreen() {
         profile?.displayName ?? user.displayName ?? `${firstName || ''} ${lastName || ''}`.trim();
       const userEmail = user.email ?? '';
 
-      // 3) Verify file and derive content type + extension
       const info = await FileSystem.getInfoAsync(audioUri);
       if (!info.exists) {
         Alert.alert('Audio missing', 'The recorded file is no longer available. Please re-record.');
@@ -247,7 +274,6 @@ export default function PredictionScreen() {
       const fileName = makeUniqueFileName(ext);
       const filePath = `uploaded_audios/${fileName}`;
 
-      // 4) Upload to Firebase Storage via REST (works on Expo)
       const bucket = (app.options as any).storageBucket as string | undefined;
       if (!bucket) throw new Error('Missing Firebase storage bucket in config.');
       const uploadUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o?name=${encodeURIComponent(filePath)}`;
@@ -258,7 +284,6 @@ export default function PredictionScreen() {
           'Content-Type': contentType,
           Authorization: `Bearer ${idToken}`,
         },
-        // default upload type is binary
       });
 
       if (result.status < 200 || result.status >= 300) {
@@ -266,14 +291,12 @@ export default function PredictionScreen() {
         throw new Error(`Storage upload failed (${result.status})`);
       }
 
-      // 5) Write Firestore document — queue for Expert review or auto-approve for experts
-      const recRef = doc(collection(db, 'recordings')); // auto ID
+      const recRef = doc(collection(db, 'recordings'));
       const recordingId = recRef.id;
 
       const nowIso = new Date().toISOString();
-      const audioURL = `/get-audio/${fileName}`; // legacy field; we also keep filePath
+      const audioURL = `/get-audio/${fileName}`;
 
-      // normalized AI block for expert UI
       const aiBlock = {
         species: predictedSpecies || '',
         confidence: score / 100,
@@ -296,6 +319,7 @@ export default function PredictionScreen() {
         filePath,
         contentType,
         audioURL,
+        notes: notes || '',
         location: {
           lat: Number.isFinite(lat) ? lat : 0,
           lng: Number.isFinite(lon) ? lon : 0,
@@ -315,7 +339,6 @@ export default function PredictionScreen() {
       const isExpert = role === 'expert' || role === 'admin';
 
       if (submitAsExpert && isExpert) {
-        // Expert fast-path: auto-approve and include expertReview metadata
         await setDoc(recRef, {
           ...baseDoc,
           status: 'approved',
@@ -328,12 +351,11 @@ export default function PredictionScreen() {
         });
         Alert.alert('Submitted', 'Your recording was saved and approved as an expert submission.');
       } else {
-        // Volunteer/default path: send to expert queue
         await setDoc(recRef, {
           ...baseDoc,
           status: 'needs_review',
         });
-        Alert.alert('Submitted', 'Your recording was saved to Firebase and queued for expert review.');
+        Alert.alert('Submitted', 'Your recording was saved');
       }
     } catch (err: any) {
       console.log('Submit failed details:', { name: err?.name, code: err?.code, message: err?.message });
@@ -344,24 +366,49 @@ export default function PredictionScreen() {
   };
 
   return (
-    <ImageBackground
-      source={require('../../assets/images/gradient-background.png')}
-      style={styles.background}
-      resizeMode="cover"
-    >
-      <ScrollView contentContainerStyle={styles.overlay}>
-        <Image source={speciesImage} style={styles.image} resizeMode="contain" />
+    <View style={styles.container}>
+      {backgroundSource ? (
+        <ImageBackground
+          source={backgroundSource}
+          style={styles.background}
+          resizeMode="cover"
+        >
+          <View style={styles.overlay} />
+        </ImageBackground>
+      ) : (
+        <View style={[styles.background, styles.solidBackground]} />
+      )}
+
+      <ScrollView 
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Header */}
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.iconButton}>
+            <Ionicons name="arrow-back" size={28} color="#333" />
+          </TouchableOpacity>
+
+          <TouchableOpacity onPress={() => Alert.alert('Menu pressed')} style={styles.iconButton}>
+            <Ionicons name="menu" size={28} color="#333" />
+          </TouchableOpacity>
+        </View>
+
+        {/* Title - Predicted Species */}
         <Text style={styles.speciesName}>{predictedSpecies}</Text>
 
+        {/* Location Used */}
         {isFinite(lat) && isFinite(lon) && (
-          <Text style={{ marginBottom: 8, opacity: 0.7 }}>
+          <Text style={styles.locationUsed}>
             Location used: {lat.toFixed(4)}, {lon.toFixed(4)}
           </Text>
         )}
 
-        {loading && <Text style={{ marginBottom: 8 }}>Running model…</Text>}
-        {apiError && <Text style={{ color: '#d32f2f', marginBottom: 8 }}>{apiError}</Text>}
+        {loading && <Text style={styles.loadingText}>Running model…</Text>}
+        {apiError && <Text style={styles.errorText}>{apiError}</Text>}
 
+        {/* Model Suggestions Card */}
         {top3.length > 0 && (
           <View style={styles.topBox}>
             <Text style={styles.topHeader}>Model suggestions</Text>
@@ -374,10 +421,12 @@ export default function PredictionScreen() {
           </View>
         )}
 
+        {/* Play/Replay Button */}
         <TouchableOpacity style={styles.actionButton} onPress={handlePlay}>
           <Text style={styles.actionButtonText}>Play / Replay Recording</Text>
         </TouchableOpacity>
 
+        {/* Re-run Model Button */}
         <TouchableOpacity
           style={[styles.actionButton, { marginTop: 10 }]}
           onPress={async () => {
@@ -409,46 +458,82 @@ export default function PredictionScreen() {
           <Text style={styles.actionButtonText}>Re-run Model</Text>
         </TouchableOpacity>
 
-        <Text style={styles.label}>Confirm Species:</Text>
-        <View style={styles.pickerContainer}>
-          <Picker
-            selectedValue={predictedSpecies}
-            onValueChange={(itemValue) => setPredictedSpecies(itemValue)}
-            style={styles.picker}
+        {/* Bottom Card */}
+        <View style={styles.bottomCard}>
+          {/* Location Button */}
+          <TouchableOpacity style={styles.cardButton}>
+            <Text style={styles.cardButtonText}>{locationCity}</Text>
+          </TouchableOpacity>
+
+          {/* Edit Button */}
+          <TouchableOpacity 
+            style={[styles.cardButton, styles.editButton]}
+            onPress={() => setShowEditOptions(!showEditOptions)}
           >
-            {Object.keys(speciesImageMap).map((species) => (
-              <Picker.Item key={species} label={species} value={species} />
-            ))}
-          </Picker>
+            <Text style={styles.editButtonText}>edit</Text>
+          </TouchableOpacity>
+
+          {/* Edit Options Card (conditionally shown below edit button) */}
+          {showEditOptions && (
+            <View style={styles.editOptionsCard}>
+              {/* Species Picker */}
+              <View style={styles.pickerContainer}>
+                <Picker
+                  selectedValue={predictedSpecies}
+                  onValueChange={(itemValue) => setPredictedSpecies(itemValue)}
+                  style={styles.picker}
+                >
+                  {Object.keys(speciesImageMap).map((species) => (
+                    <Picker.Item key={species} label={species} value={species} />
+                  ))}
+                </Picker>
+              </View>
+
+              {/* Confidence Score */}
+              <TextInput
+                style={styles.editInput}
+                value={confidenceInput}
+                onChangeText={setConfidenceInput}
+                placeholder="Confidence Score"
+                placeholderTextColor="#999"
+                keyboardType="number-pad"
+              />
+
+              {/* Notes */}
+              <TextInput
+                style={[styles.editInput, styles.notesInput]}
+                value={notes}
+                onChangeText={setNotes}
+                placeholder="Notes..."
+                placeholderTextColor="#999"
+                multiline
+              />
+            </View>
+          )}
+
+          {/* Submit Button */}
+          <TouchableOpacity 
+            style={[styles.cardButton, styles.submitButton]}
+            onPress={handleSubmit}
+          >
+            <Text style={styles.submitButtonText}>submit for approval</Text>
+          </TouchableOpacity>
         </View>
 
-        <Text style={styles.label}>Confidence (0–100):</Text>
-        <TextInput
-          style={styles.input}
-          value={confidenceInput}
-          onChangeText={setConfidenceInput}
-          placeholder="e.g. 85"
-          keyboardType="number-pad"
-        />
-
-        {/* Expert-only fast path toggle */}
+        {/* Expert Options */}
         {(role === 'expert' || role === 'admin') && (
           <View style={styles.expertBox}>
-            <Text style={{ fontWeight: '700', marginBottom: 8 }}>Expert Options</Text>
-            <TouchableOpacity onPress={() => setSubmitAsExpert(v => !v)} style={{ paddingVertical: 6 }}>
+            <Text style={styles.expertTitle}>Expert Options</Text>
+            <TouchableOpacity onPress={() => setSubmitAsExpert(v => !v)} style={styles.expertCheckbox}>
               <Text>{submitAsExpert ? '☑' : '☐'} Submit as expert (skip review)</Text>
             </TouchableOpacity>
-            <Text style={{ opacity: 0.7, marginTop: 4 }}>
+            <Text style={styles.expertNote}>
               If enabled, this submission is immediately marked approved with your expert review.
             </Text>
           </View>
         )}
-
-        <TouchableOpacity style={styles.actionButton} onPress={handleSubmit}>
-          <Text style={styles.actionButtonText}>Submit</Text>
-        </TouchableOpacity>
       </ScrollView>
-    </ImageBackground>
+    </View>
   );
 }
 
@@ -496,51 +581,200 @@ async function callPredict(uri: string, lat?: number, lon?: number) {
 
 /* ---------------- styles ---------------- */
 const styles = StyleSheet.create({
-  background: { flex: 1, width: '100%', height: '100%' },
-  overlay: { alignItems: 'center', padding: 40, flexGrow: 1 },
-  image: {
-    width: 300,
-    height: 200,
-    borderRadius: 5,
-    marginBottom: 10,
-    borderWidth: 2,
-    borderColor: '#66bb6a',
+  container: {
+    flex: 1,
   },
-  speciesName: { fontSize: 30, fontWeight: '600', marginBottom: 8 },
-  topBox: {
+  background: {
+    position: 'absolute',
     width: '100%',
+    height: '100%',
+  },
+  solidBackground: {
+    backgroundColor: '#5a7a65',
+  },
+  overlay: {
+    flex: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingBottom: 60,
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingTop: 50,
+    marginBottom: 20,
+  },
+  iconButton: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: 'rgba(0, 0, 0, 0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  speciesName: {
+    fontSize: 80,
+    fontWeight: '600',
+    color: '#ccff00',
+    textAlign: 'center',
+    marginBottom: 8,
+    marginTop: 100,
+  },
+  locationUsed: {
+    fontSize: 14,
+    color: '#ccff00',
+    textAlign: 'center',
+    marginBottom: 10,
+    opacity: 0.8,
+  },
+  loadingText: {
+    fontSize: 16,
+    color: '#2d3e34',
+    textAlign: 'center',
+    marginBottom: 80,
+  },
+  errorText: {
+    fontSize: 16,
+    color: '#d32f2f',
+    textAlign: 'center',
+    marginBottom: 80,
+  },
+  topBox: {
+    marginHorizontal: 20,
     backgroundColor: '#fff',
     borderRadius: 12,
     borderWidth: 1,
     borderColor: '#c8e6c9',
     padding: 12,
-    marginBottom: 10,
+    marginBottom: 16,
   },
-  topHeader: { fontWeight: '700', color: '#2e7d32', marginBottom: 6 },
-  topRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 2 },
-  topRowSpecies: { fontWeight: '500' },
-  topRowConf: { opacity: 0.7 },
-  label: { marginTop: 20, fontWeight: 'bold', alignSelf: 'flex-start' },
-  input: { borderWidth: 1, borderColor: '#ccc', borderRadius: 8, padding: 10, marginVertical: 10, width: '100%' },
-  pickerContainer: { borderWidth: 1, borderColor: '#ccc', borderRadius: 8, marginVertical: 10, width: '100%', overflow: 'hidden' },
-  picker: { width: '100%', height: 60 },
+  topHeader: {
+    fontWeight: '700',
+    color: '#2e7d32',
+    marginBottom: 6,
+    fontSize: 16,
+  },
+  topRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 2,
+  },
+  topRowSpecies: {
+    fontWeight: '500',
+    color: '#333',
+  },
+  topRowConf: {
+    opacity: 0.7,
+    color: '#333',
+  },
   actionButton: {
-    backgroundColor: '#66bb6a',
+    backgroundColor: 'rgba(180, 255, 4, 0.95)',
     paddingVertical: 12,
     paddingHorizontal: 25,
     borderRadius: 8,
-    marginTop: 15,
-    width: '100%',
+    marginHorizontal: 20,
     alignItems: 'center',
   },
-  actionButtonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
-  expertBox: {
+  actionButtonText: {
+    color: '#000000ff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  bottomCard: {
+    marginHorizontal: 20,
+    marginTop: 20,
+    backgroundColor: '#3B483B',
+    borderRadius: 20,
+    padding: 20,
+  },
+  cardButton: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    marginBottom: 12,
+    alignItems: 'center',
+  },
+  cardButtonText: {
+    fontSize: 20,
+    fontWeight: '500',
+    color: '#000000ff',
+  },
+  editButton: {
+    backgroundColor: '#4C6052',
+    borderWidth: 2,
+    borderColor: '#ccff00',
+  },
+  editButtonText: {
+    fontSize: 22,
+    fontWeight: '400',
+    color: '#fff',
+  },
+  editOptionsCard: {
+    backgroundColor: '#212c26ff',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+  },
+  pickerContainer: {
+    backgroundColor: '#1b1b1bff',
+    borderRadius: 10,
+    marginBottom: 12,
+    overflow: 'hidden',
+  },
+  picker: {
     width: '100%',
+  },
+  editInput: {
+    backgroundColor: '#1b1b1bff',
+    borderRadius: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    fontSize: 16,
+    color: '#f2f2f2ff',
+    marginBottom: 12,
+  },
+  notesInput: {
+    height: 80,
+    textAlignVertical: 'top',
+    paddingTop: 12,
+  },
+  submitButton: {
+    backgroundColor: '#4C6052',
+    borderWidth: 2,
+    borderColor: '#ccff00',
+  },
+  submitButtonText: {
+    fontSize: 22,
+    fontWeight: '400',
+    color: '#fff',
+  },
+  expertBox: {
+    marginHorizontal: 20,
+    marginTop: 16,
     borderWidth: 1,
-    borderColor: '#c8e6c9',
-    backgroundColor: '#ffffff',
+    borderColor: 'rgba(0, 0, 0, 0.2)',
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
     padding: 12,
     borderRadius: 10,
-    marginTop: 8,
+  },
+  expertTitle: {
+    fontWeight: '700',
+    marginBottom: 8,
+    color: '#2d3e34',
+  },
+  expertCheckbox: {
+    paddingVertical: 6,
+  },
+  expertNote: {
+    opacity: 0.7,
+    marginTop: 4,
+    fontSize: 12,
+    color: '#666',
   },
 });

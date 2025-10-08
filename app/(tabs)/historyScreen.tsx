@@ -1,22 +1,23 @@
 // app/(tabs)/historyScreen.tsx
+import { Ionicons } from '@expo/vector-icons';
 import { Audio } from 'expo-av';
 import { onAuthStateChanged } from 'firebase/auth';
 import {
   collection, DocumentData, onSnapshot, query, Timestamp, where
 } from 'firebase/firestore';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Image,
-  ImageBackground, // ⬅️ added
   NativeModules,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View
 } from 'react-native';
-import MapView, { Marker } from 'react-native-maps';
 import app, { auth, db } from '../firebaseConfig';
 
 type Recording = {
@@ -26,10 +27,13 @@ type Recording = {
   species: string;
   audioURL?: string;
   location: { latitude: number; longitude: number };
+  locationCity?: string;
   status: string;
   timestampISO?: string;
-  confidence?: number; // 0–100
-  _tsMs?: number
+  confidence?: number;
+  notes?: string;
+  submitterName?: string;
+  recordingNumber?: number;
 };
 
 const speciesImageMap: Record<string, any> = {
@@ -44,7 +48,6 @@ const speciesImageMap: Record<string, any> = {
 };
 const placeholderImage = require('../../assets/frogs/placeholder.png');
 
-// Dev API base (only used to play very old /get-audio/... entries)
 function pickDevHost() {
   const url: string | undefined = (NativeModules as any)?.SourceCode?.scriptURL;
   const m = url?.match(/\/\/([^/:]+):\d+/);
@@ -52,15 +55,12 @@ function pickDevHost() {
 }
 const API_BASE = __DEV__ ? `http://${pickDevHost()}:8000` : 'https://your-production-domain';
 
-// Build a playable URL from Firestore doc data
 function resolveAudioURL(d: any): string | undefined {
-  // Prefer Storage path → public download URL
   const filePath = d?.filePath || (d?.fileName ? `uploaded_audios/${d.fileName}` : undefined);
   if (filePath) {
-    const bucket = (app.options as any).storageBucket as string; // e.g. frogwatch-backend.appspot.com
+    const bucket = (app.options as any).storageBucket as string;
     return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodeURIComponent(filePath)}?alt=media`;
   }
-  // Fallback: older docs had audioURL like '/get-audio/<file>'
   const a = d?.audioURL;
   if (typeof a === 'string') {
     if (/^https?:\/\//i.test(a)) return a;
@@ -69,23 +69,31 @@ function resolveAudioURL(d: any): string | undefined {
   return undefined;
 }
 
+async function getCityFromCoords(lat: number, lon: number): Promise<string> {
+  try {
+    const response = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`
+    );
+    const data = await response.json();
+    const city = data.address?.city || data.address?.town || data.address?.village || 'Unknown';
+    const state = data.address?.state || '';
+    return state ? `${city}, ${state}` : city;
+  } catch (error) {
+    return 'Unknown Location';
+  }
+}
+
 export default function HistoryScreen() {
   const [recordings, setRecordings] = useState<Recording[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorText, setErrorText] = useState<string | null>(null);
   const [sound, setSound] = useState<Audio.Sound | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const mapRef = useRef<MapView>(null);
-
-  const initialRegion = useMemo(() => {
-    const first = recordings[0];
-    return {
-      latitude: first?.location.latitude ?? 42.3314,
-      longitude: first?.location.longitude ?? -83.0458,
-      latitudeDelta: 0.01,
-      longitudeDelta: 0.01,
-    };
-  }, [recordings]);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [editMode, setEditMode] = useState<string | null>(null);
+  const [editSpecies, setEditSpecies] = useState('');
+  const [editConfidence, setEditConfidence] = useState('');
+  const [editNotes, setEditNotes] = useState('');
 
   useEffect(() => {
     let offAuth: (() => void) | undefined;
@@ -105,12 +113,22 @@ export default function HistoryScreen() {
 
       offSnap = onSnapshot(
         q,
-        (snap) => {
+        async (snap) => {
           const rows: Recording[] = [];
-          snap.forEach((doc) => {
+          let index = 1;
+          
+          for (const doc of snap.docs) {
             const d = doc.data() as DocumentData;
             const ts: Timestamp | undefined = d.timestamp;
-            const timestampISO = ts?.toDate?.()?.toLocaleString?.() ?? d.timestamp_iso ?? undefined;
+            const timestampISO = ts?.toDate?.()?.toLocaleDateString?.() ?? d.timestamp_iso ?? 'Unknown';
+
+            const lat = Number(d?.location?.lat) || 0;
+            const lon = Number(d?.location?.lng) || 0;
+            const locationCity = lat && lon ? await getCityFromCoords(lat, lon) : 'Unknown Location';
+
+            const submitterName = d.submitter?.displayName || 
+                                  `${d.submitter?.firstName || ''} ${d.submitter?.lastName || ''}`.trim() ||
+                                  'Unknown';
 
             rows.push({
               recordingId: d.recordingId ?? doc.id,
@@ -118,18 +136,19 @@ export default function HistoryScreen() {
               predictedSpecies: d.predictedSpecies ?? '',
               species: d.species ?? '',
               audioURL: resolveAudioURL(d),
-              location: {
-                latitude: Number(d?.location?.lat) || 0,
-                longitude: Number(d?.location?.lng) || 0,
-              },
+              location: { latitude: lat, longitude: lon },
+              locationCity,
               status: d.status ?? 'pending_analysis',
               timestampISO,
               confidence:
                 typeof d.confidenceScore === 'number'
                   ? Math.round(d.confidenceScore * 100)
                   : undefined,
+              notes: d.notes || '',
+              submitterName,
+              recordingNumber: index++,
             });
-          });
+          }
 
           setRecordings(rows);
           setLoading(false);
@@ -147,8 +166,7 @@ export default function HistoryScreen() {
       offAuth?.();
       sound?.unloadAsync().catch(() => {});
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [sound]);
 
   const handlePlay = async (uri?: string) => {
     if (!uri) return;
@@ -165,139 +183,435 @@ export default function HistoryScreen() {
     }
   };
 
-  const handleSelect = (rec: Recording) => {
-    setSelectedId(rec.recordingId);
-    mapRef.current?.animateToRegion({
-      ...rec.location,
-      latitudeDelta: 0.01,
-      longitudeDelta: 0.01,
-    });
+  const handleExpand = (rec: Recording) => {
+    if (expandedId === rec.recordingId) {
+      setExpandedId(null);
+      setEditMode(null);
+    } else {
+      setExpandedId(rec.recordingId);
+      setEditMode(null);
+      setEditSpecies(rec.predictedSpecies);
+      setEditConfidence(String(rec.confidence ?? ''));
+      setEditNotes(rec.notes ?? '');
+    }
   };
+
+  const handleEdit = (rec: Recording) => {
+    if (editMode === rec.recordingId) {
+      setEditMode(null);
+    } else {
+      setEditMode(rec.recordingId);
+      setEditSpecies(rec.predictedSpecies);
+      setEditConfidence(String(rec.confidence ?? ''));
+      setEditNotes(rec.notes ?? '');
+    }
+  };
+
+  const handleResubmit = () => {
+    Alert.alert('Resubmit', 'Recording resubmitted for review');
+  };
+
+  const filteredRecordings = useMemo(() => {
+    if (!searchQuery.trim()) return recordings;
+    const lower = searchQuery.toLowerCase();
+    return recordings.filter(
+      (r) =>
+        r.predictedSpecies.toLowerCase().includes(lower) ||
+        r.locationCity?.toLowerCase().includes(lower)
+    );
+  }, [recordings, searchQuery]);
 
   const renderItem = ({ item }: { item: Recording }) => {
     const img = speciesImageMap[item.predictedSpecies] || placeholderImage;
+    const isExpanded = expandedId === item.recordingId;
+    const isEditing = editMode === item.recordingId;
+    const isApproved = item.status === 'approved';
+
     return (
-      <TouchableOpacity onPress={() => handleSelect(item)}>
-        <View
-          style={[
-            styles.card,
-            selectedId === item.recordingId && { borderColor: '#FF9500', borderWidth: 2 },
-          ]}
-        >
-          <Image source={img} style={styles.image} />
-          <Text style={styles.title}>{item.predictedSpecies || '(Unknown species)'}</Text>
-          <Text style={styles.rowText}>Confidence: {item.confidence ?? 'N/A'}%</Text>
-          <Text style={styles.rowText}>Status: {item.status}</Text>
-          {!!item.timestampISO && <Text style={styles.rowText}>Time: {item.timestampISO}</Text>}
-          <Text style={styles.rowText}>
-            Location: {item.location.latitude.toFixed(4)}, {item.location.longitude.toFixed(4)}
-          </Text>
-          <TouchableOpacity style={styles.button} onPress={() => handlePlay(item.audioURL)}>
-            <Text style={styles.buttonText}>Play / Replay</Text>
-          </TouchableOpacity>
-        </View>
-      </TouchableOpacity>
+      <View style={styles.itemContainer}>
+        <TouchableOpacity onPress={() => handleExpand(item)}>
+          <View style={styles.card}>
+            <View style={styles.cardLeft}>
+              <View style={styles.speciesTag}>
+                <Text style={styles.speciesTagText}>Frog Spec #{item.recordingNumber}</Text>
+              </View>
+              <View style={styles.statusIcon}>
+                {isApproved ? (
+                  <Ionicons name="checkmark-circle" size={24} color="#6ee96e" />
+                ) : (
+                  <Ionicons name="cloud-upload" size={24} color="#4db8e8" />
+                )}
+              </View>
+              <Text style={styles.locationText}>{item.locationCity}</Text>
+            </View>
+            <Image source={img} style={styles.cardImage} />
+          </View>
+        </TouchableOpacity>
+
+        {isExpanded && (
+          <View style={styles.expandedCard}>
+            <View style={styles.expandedHeader}>
+              <Text style={styles.expandedDate}>{item.timestampISO}</Text>
+              <TouchableOpacity onPress={() => handleEdit(item)}>
+                <Text style={styles.editText}>edit</Text>
+              </TouchableOpacity>
+            </View>
+
+            {isEditing ? (
+              <View style={styles.editContainer}>
+                <View style={styles.dropdownPlaceholder}>
+                  <Text style={styles.dropdownText}>Species name ▼</Text>
+                </View>
+                <TextInput
+                  style={styles.editInput}
+                  value={editConfidence}
+                  onChangeText={setEditConfidence}
+                  placeholder="Confidence Score"
+                  placeholderTextColor="#999"
+                  keyboardType="number-pad"
+                />
+                <TextInput
+                  style={[styles.editInput, styles.notesInput]}
+                  value={editNotes}
+                  onChangeText={setEditNotes}
+                  placeholder="Notes made by volunteer or expert"
+                  placeholderTextColor="#999"
+                  multiline
+                />
+              </View>
+            ) : (
+              <>
+                <View style={styles.dropdownPlaceholder}>
+                  <Text style={styles.dropdownText}>Species name ▼</Text>
+                </View>
+                <View style={styles.scoreContainer}>
+                  <View style={styles.scoreBox}>
+                    <Text style={styles.scoreLabel}>score</Text>
+                    <Text style={styles.scoreValue}>{item.confidence ?? 'N/A'}</Text>
+                  </View>
+                  <View style={styles.notesBox}>
+                    <Text style={styles.notesText}>
+                      {item.notes || 'Notes made by volunteer or expert'}
+                    </Text>
+                  </View>
+                </View>
+              </>
+            )}
+
+            <View style={styles.waveformPlaceholder} />
+
+            <View style={styles.actionButtons}>
+              <TouchableOpacity
+                style={styles.playButton}
+                onPress={() => handlePlay(item.audioURL)}
+              >
+                <Text style={styles.playButtonText}>play</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.resubmitButton} onPress={handleResubmit}>
+                <Text style={styles.resubmitButtonText}>resubmit</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.uploaderInfo}>
+              <Text style={styles.uploaderName}>{item.submitterName}</Text>
+              <Text style={styles.uploadStatus}>Uploading...</Text>
+            </View>
+          </View>
+        )}
+      </View>
     );
   };
 
   if (loading) {
     return (
-      <ImageBackground
-        source={require('../../assets/images/gradient-background.png')}
-        style={styles.background}
-        resizeMode="cover"
-      >
-        <View style={styles.overlay}>
-          <ActivityIndicator size="large" style={{ marginTop: 50 }} />
-        </View>
-      </ImageBackground>
+      <View style={styles.container}>
+        <ActivityIndicator size="large" color="#b8e986" style={{ marginTop: 100 }} />
+      </View>
     );
   }
 
   return (
-    <ImageBackground
-      source={require('../../assets/images/gradient-background.png')}
-      style={styles.background}
-      resizeMode="cover"
-    >
-      <View style={styles.overlay}>
-        {errorText ? <Text style={styles.error}>{errorText}</Text> : null}
-
-        <View style={styles.mapContainer}>
-          <MapView ref={mapRef} style={styles.map} initialRegion={initialRegion}>
-            {recordings.map((rec) => (
-              <Marker
-                key={rec.recordingId}
-                coordinate={rec.location}
-                title={rec.predictedSpecies}
-                description={`Confidence: ${rec.confidence ?? 'N/A'}%`}
-                pinColor={rec.recordingId === selectedId ? 'orange' : 'red'}
-                onPress={() => handleSelect(rec)}
-              />
-            ))}
-          </MapView>
+    <View style={styles.container}>
+      {/* Header */}
+      <View style={styles.header}>
+        <View>
+          <Text style={styles.headerTitle}>History</Text>
+          <View style={styles.titleUnderline} />
         </View>
+        <TouchableOpacity style={styles.menuButton}>
+          <Ionicons name="menu" size={32} color="#fff" />
+        </TouchableOpacity>
+      </View>
 
-        <FlatList
-          data={recordings}
-          keyExtractor={(item) => item.recordingId}
-          renderItem={renderItem}
-          contentContainerStyle={styles.listContent}
-          showsVerticalScrollIndicator
-          persistentScrollbar
-          indicatorStyle="white"
-          ListEmptyComponent={
-            <Text style={{ padding: 16, textAlign: 'center', color: '#fff' }}>
-              No recordings yet. Make one from the Record screen!
-            </Text>
-          }
+      {/* Search Bar */}
+      <View style={styles.searchContainer}>
+        <Ionicons name="search" size={24} color="#fff" style={styles.searchIcon} />
+        <TextInput
+          style={styles.searchInput}
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          placeholder="Search"
+          placeholderTextColor="#aaa"
         />
       </View>
-    </ImageBackground>
+
+      {errorText ? <Text style={styles.error}>{errorText}</Text> : null}
+
+      {/* List */}
+      <FlatList
+        data={filteredRecordings}
+        keyExtractor={(item) => item.recordingId}
+        renderItem={renderItem}
+        contentContainerStyle={styles.listContent}
+        showsVerticalScrollIndicator={false}
+        ListEmptyComponent={
+          <Text style={styles.emptyText}>
+            No recordings yet. Make one from the Record screen!
+          </Text>
+        }
+      />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  // background image wrapper (same as other screens)
-  background: { flex: 1, width: '100%', height: '100%' },
-
-  // replaces solid container bg so gradient shows through
-  overlay: { flex: 1, alignItems: 'center' },
-
-  // same embed style as RecordScreen
-  mapContainer: {
-    width: 300,
-    height: 270,
-    borderRadius: 10,
-    overflow: 'hidden',
-    marginTop: 60,
-    marginBottom: 15,
+  container: {
+    flex: 1,
+    backgroundColor: '#3F5A47',
   },
-  map: { flex: 1 },
-
-  listContent: { padding: 35, paddingBottom: 24, width: '100%' },
-
-  error: { padding: 12, color: '#ffdddd', textAlign: 'center' },
-
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    paddingHorizontal: 20,
+    paddingTop: 60,
+    marginBottom: 20,
+  },
+  headerTitle: {
+    fontSize: 48,
+    fontWeight: '400',
+    color: '#fff',
+  },
+  titleUnderline: {
+    width: 160,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#d4ff00',
+    marginTop: 4,
+  },
+  menuButton: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: 'rgba(0, 0, 0, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.2)',
+    borderWidth: 2,
+    borderColor: '#d4ff00',
+    borderRadius: 25,
+    marginHorizontal: 20,
+    marginBottom: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  searchIcon: {
+    marginRight: 12,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 20,
+    color: '#fff',
+  },
+  listContent: {
+    paddingHorizontal: 20,
+    paddingBottom: 20,
+  },
+  error: {
+    padding: 12,
+    color: '#ffdddd',
+    textAlign: 'center',
+  },
+  emptyText: {
+    padding: 16,
+    textAlign: 'center',
+    color: '#fff',
+    fontSize: 16,
+  },
+  itemContainer: {
+    marginBottom: 16,
+  },
   card: {
-    backgroundColor: '#f0f8ff',
-    padding: 5,
-    borderRadius: 5,
-    marginBottom: 15,
-    borderWidth: 1,
-    borderColor: '#007AFF',
-    width: '110%',
-    alignSelf: 'center',
-  },
-  image: { width: '100%', height: 180, borderRadius: 8 },
-  title: { fontSize: 30, fontWeight: '400', marginVertical: 5 },
-  rowText: { color: '#1b1b1b' },
-  button: {
-    backgroundColor: '#007AFF',
-    padding: 10,
-    marginTop: 10,
-    borderRadius: 8,
+    backgroundColor: '#3d4f44',
+    borderRadius: 16,
+    padding: 16,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
   },
-  buttonText: { color: '#fff', fontWeight: 'bold' },
+  cardLeft: {
+    flex: 1,
+  },
+  speciesTag: {
+    backgroundColor: '#d4ff00',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+    alignSelf: 'flex-start',
+    marginBottom: 8,
+  },
+  speciesTagText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#2d3e34',
+  },
+  statusIcon: {
+    marginBottom: 8,
+  },
+  locationText: {
+    fontSize: 18,
+    fontWeight: '500',
+    color: '#fff',
+  },
+  cardImage: {
+    width: 100,
+    height: 100,
+    borderRadius: 12,
+  },
+  expandedCard: {
+    backgroundColor: '#2d3e34',
+    borderRadius: 16,
+    padding: 16,
+    marginTop: 8,
+  },
+  expandedHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  expandedDate: {
+    fontSize: 18,
+    fontWeight: '500',
+    color: '#fff',
+  },
+  editText: {
+    fontSize: 16,
+    color: '#d4ff00',
+  },
+  dropdownPlaceholder: {
+    backgroundColor: '#3d4f44',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 12,
+  },
+  dropdownText: {
+    fontSize: 16,
+    color: '#fff',
+  },
+  scoreContainer: {
+    flexDirection: 'row',
+    marginBottom: 12,
+    gap: 12,
+  },
+  scoreBox: {
+    backgroundColor: '#d4ff00',
+    borderRadius: 12,
+    padding: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 100,
+  },
+  scoreLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#2d3e34',
+    marginBottom: 4,
+  },
+  scoreValue: {
+    fontSize: 36,
+    fontWeight: '700',
+    color: '#2d3e34',
+  },
+  notesBox: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.2)',
+    borderWidth: 2,
+    borderColor: '#d4ff00',
+    borderRadius: 12,
+    padding: 12,
+    justifyContent: 'center',
+  },
+  notesText: {
+    fontSize: 14,
+    color: '#fff',
+  },
+  editContainer: {
+    marginBottom: 12,
+  },
+  editInput: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 12,
+    fontSize: 16,
+    color: '#333',
+    marginBottom: 12,
+  },
+  notesInput: {
+    height: 80,
+    textAlignVertical: 'top',
+  },
+  waveformPlaceholder: {
+    height: 60,
+    backgroundColor: '#1a252a',
+    borderRadius: 12,
+    marginBottom: 12,
+  },
+  actionButtons: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 12,
+  },
+  playButton: {
+    flex: 1,
+    backgroundColor: '#3d4f44',
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  playButtonText: {
+    fontSize: 16,
+    color: '#fff',
+    fontWeight: '500',
+  },
+  resubmitButton: {
+    flex: 1,
+    backgroundColor: '#3d4f44',
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  resubmitButtonText: {
+    fontSize: 16,
+    color: '#fff',
+    fontWeight: '500',
+  },
+  uploaderInfo: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  uploaderName: {
+    fontSize: 16,
+    color: '#fff',
+    fontWeight: '500',
+  },
+  uploadStatus: {
+    fontSize: 14,
+    color: '#aaa',
+  },
 });
