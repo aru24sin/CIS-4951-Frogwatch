@@ -298,8 +298,6 @@ export default function HistoryScreen() {
               </>
             )}
 
-            <View style={styles.waveformPlaceholder} />
-
             <View style={styles.actionButtons}>
               <TouchableOpacity
                 style={styles.playButton}

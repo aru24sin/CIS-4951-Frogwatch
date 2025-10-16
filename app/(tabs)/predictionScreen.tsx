@@ -27,14 +27,14 @@ type TopItem = { species: string; confidence: number };
 
 /* ---------------- species images ---------------- */
 const speciesImageMap: Record<string, any> = {
-  Bullfrog: require('../../assets/frogs/bullfrog.png'),
-  'Green Frog': require('../../assets/frogs/treefrog.png'),
-  'Northern Spring Peeper': require('../../assets/frogs/spring_peeper.png'),
-  'Northern Leopard Frog': require('../../assets/frogs/northern_leopard.png'),
-  'Eastern Gray Treefrog': require('../../assets/frogs/gray_treefrog.png'),
-  'Wood Frog': require('../../assets/frogs/wood_frog.png'),
-  'American Toad': require('../../assets/frogs/american_toad.png'),
-  'Midland Chorus Frog': require('../../assets/frogs/midland_chorus.png'),
+  Bullfrog: require('../../assets/frogs_background/bullfrog.jpg'),
+  'Green Frog': require('../../assets/frogs_background/american_green_treefrog.jpg'),
+  'Northern Spring Peeper': require('../../assets/frogs_background/spring_peeper.jpeg'),
+  'Northern Leopard Frog': require('../../assets/frogs_background/northern_leopard.jpg'),
+  'Eastern Gray Treefrog': require('../../assets/frogs_background/grey_treefrog.jpg'),
+  'Wood Frog': require('../../assets/frogs_background/wood_frog.jpg'),
+  'American Toad': require('../../assets/frogs_background/american_toad.jpg'),
+  'Midland Chorus Frog': require('../../assets/frogs_background/midland_chorus_frog.jpg'),
 };
 const placeholderImage = require('../../assets/frogs/placeholder.png');
 

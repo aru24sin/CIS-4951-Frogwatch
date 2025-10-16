@@ -5,7 +5,11 @@ import Constants from 'expo-constants';
 import { useRouter } from 'expo-router';
 import { onAuthStateChanged } from 'firebase/auth';
 import {
-  collection, DocumentData, onSnapshot, query, Timestamp, where
+  collection,
+  doc,
+  DocumentData, onSnapshot, query, Timestamp,
+  updateDoc,
+  where
 } from 'firebase/firestore';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -110,6 +114,8 @@ export default function MapHistoryScreen() {
   const [editSpecies, setEditSpecies] = useState('');
   const [editConfidence, setEditConfidence] = useState('');
   const [editNotes, setEditNotes] = useState('');
+  const [showSpeciesDropdown, setShowSpeciesDropdown] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   
   // Date filter state
   const [startDate, setStartDate] = useState<Date | null>(null);
@@ -262,9 +268,10 @@ export default function MapHistoryScreen() {
     if (selectedRecording) {
       setExpandedRecording(selectedRecording);
       setEditMode(false);
-      setEditSpecies(selectedRecording.predictedSpecies);
+      setEditSpecies(selectedRecording.species || selectedRecording.predictedSpecies);
       setEditConfidence(String(selectedRecording.confidence ?? ''));
       setEditNotes(selectedRecording.notes ?? '');
+      setShowSpeciesDropdown(false);
     }
   };
 
@@ -284,7 +291,51 @@ export default function MapHistoryScreen() {
   };
 
   const handleEdit = () => {
-    setEditMode(!editMode);
+    if (editMode) {
+      // Save changes
+      handleSaveEdits();
+    } else {
+      setEditMode(true);
+    }
+  };
+
+  const handleSaveEdits = async () => {
+    if (!expandedRecording) return;
+    
+    setIsSaving(true);
+    try {
+      const recordingRef = doc(db, 'recordings', expandedRecording.recordingId);
+      
+      const updates: any = {
+        species: editSpecies,
+        notes: editNotes,
+      };
+      
+      // Only update confidence if it's a valid number
+      const confidenceNum = parseFloat(editConfidence);
+      if (!isNaN(confidenceNum) && confidenceNum >= 0 && confidenceNum <= 100) {
+        updates.confidenceScore = confidenceNum / 100;
+      }
+      
+      await updateDoc(recordingRef, updates);
+      
+      // Update local state
+      setExpandedRecording({
+        ...expandedRecording,
+        species: editSpecies,
+        predictedSpecies: editSpecies,
+        confidence: confidenceNum,
+        notes: editNotes,
+      });
+      
+      setEditMode(false);
+      Alert.alert('Success', 'Changes saved successfully');
+    } catch (error) {
+      console.error('Error saving edits:', error);
+      Alert.alert('Error', 'Failed to save changes');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleResubmit = () => {
@@ -487,35 +538,71 @@ export default function MapHistoryScreen() {
                 <View style={styles.speciesTag}>
                   <Text style={styles.speciesTagText}>Frog Spec #{expandedRecording.recordingNumber}</Text>
                 </View>
-                <View style={styles.statusIcon}>
-                  <Ionicons name="cloud-upload" size={24} color="#4db8e8" />
-                </View>
-                <Text style={styles.locationText}>{expandedRecording.locationCity}</Text>
                 <Image 
-                  source={speciesImageMap[expandedRecording.predictedSpecies] || placeholderImage} 
-                  style={styles.expandedHeaderImage} 
-                />
+                    source={speciesImageMap[expandedRecording.predictedSpecies] || placeholderImage} 
+                    style={styles.expandedHeaderImage} 
+                  />
+                <View style={styles.expandedHeaderContent}>
+                  <View style={styles.statusIcon}>
+                    <Ionicons name="cloud-upload" size={24} color="#4db8e8" />
+                  </View>
+                  <Text style={styles.locationText}>{expandedRecording.locationCity}</Text>
+                </View>
               </View>
             </View>
 
-            <View style={styles.expandedContent}>
+            <ScrollView style={styles.expandedContent} showsVerticalScrollIndicator={false}>
               <View style={styles.dateEditRow}>
                 <Text style={styles.expandedDate}>{expandedRecording.timestampISO}</Text>
-                <TouchableOpacity onPress={handleEdit}>
-                  <Text style={styles.editText}>edit</Text>
+                <TouchableOpacity onPress={handleEdit} disabled={isSaving}>
+                  <Text style={styles.editText}>
+                    {isSaving ? 'saving...' : editMode ? 'save' : 'edit'}
+                  </Text>
                 </TouchableOpacity>
               </View>
 
               {editMode ? (
                 <View style={styles.editContainer}>
-                  <View style={styles.dropdownPlaceholder}>
-                    <Text style={styles.dropdownText}>Species name ▼</Text>
-                  </View>
+                  <TouchableOpacity 
+                    style={styles.dropdownPlaceholder}
+                    onPress={() => setShowSpeciesDropdown(!showSpeciesDropdown)}
+                  >
+                    <Text style={styles.dropdownText}>
+                      {editSpecies || 'Select Species'} ▼
+                    </Text>
+                  </TouchableOpacity>
+                  
+                  {showSpeciesDropdown && (
+                    <View style={styles.dropdownMenu}>
+                      <ScrollView style={styles.dropdownScroll} nestedScrollEnabled>
+                        {allSpeciesOptions.map((species) => (
+                          <TouchableOpacity
+                            key={species}
+                            style={styles.dropdownItem}
+                            onPress={() => {
+                              setEditSpecies(species);
+                              setShowSpeciesDropdown(false);
+                            }}
+                          >
+                            <Image 
+                              source={speciesImageMap[species] || placeholderImage} 
+                              style={styles.dropdownItemImage} 
+                            />
+                            <Text style={styles.dropdownItemText}>{species}</Text>
+                            {editSpecies === species && (
+                              <Ionicons name="checkmark" size={24} color="#d4ff00" />
+                            )}
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
+                    </View>
+                  )}
+                  
                   <TextInput
                     style={styles.editInput}
                     value={editConfidence}
                     onChangeText={setEditConfidence}
-                    placeholder="Confidence Score"
+                    placeholder="Confidence Score (0-100)"
                     placeholderTextColor="#999"
                     keyboardType="number-pad"
                   />
@@ -531,7 +618,9 @@ export default function MapHistoryScreen() {
               ) : (
                 <>
                   <View style={styles.dropdownPlaceholder}>
-                    <Text style={styles.dropdownText}>Species name ▼</Text>
+                    <Text style={styles.dropdownText}>
+                      {expandedRecording.species || expandedRecording.predictedSpecies}
+                    </Text>
                   </View>
                   <View style={styles.scoreContainer}>
                     <View style={styles.scoreBox}>
@@ -547,8 +636,6 @@ export default function MapHistoryScreen() {
                 </>
               )}
 
-              <View style={styles.waveformPlaceholder} />
-
               <View style={styles.actionButtons}>
                 <TouchableOpacity
                   style={styles.playButton}
@@ -563,9 +650,8 @@ export default function MapHistoryScreen() {
 
               <View style={styles.uploaderInfo}>
                 <Text style={styles.uploaderName}>{expandedRecording.submitterName}</Text>
-                <Text style={styles.uploadStatus}>Uploading...</Text>
               </View>
-            </View>
+            </ScrollView>
           </View>
         </View>
       )}
@@ -839,11 +925,13 @@ const styles = StyleSheet.create({
   },
   selectedCard: {
     position: 'absolute',
-    bottom: 100,
-    right: 20,
+    bottom: 625,
+    right: 56,
     backgroundColor: '#2d3e34',
     borderRadius: 16,
-    padding: 12,
+    paddingHorizontal: 20,
+    paddingTop: 15,
+    paddingBottom: 15,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
@@ -852,22 +940,24 @@ const styles = StyleSheet.create({
   },
   selectedCardContent: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
+    alignItems: 'flex-start',
+    gap: 150,
   },
   selectedCardLeft: {
     flex: 1,
   },
   speciesTag: {
     backgroundColor: '#d4ff00',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingHorizontal: 2,
+    paddingVertical: 2,
+    width: 130,
+    height: 30,
     borderRadius: 8,
-    alignSelf: 'flex-start',
-    marginBottom: 6,
+    alignSelf: 'flex-start'
   },
   speciesTagText: {
-    fontSize: 12,
+    fontSize: 18,
+    alignSelf: 'center',
     fontWeight: '700',
     color: '#2d3e34',
   },
@@ -907,26 +997,34 @@ const styles = StyleSheet.create({
     backgroundColor: '#3d4f44',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    padding: 16,
+    padding: 12,
   },
   expandedHeaderTop: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: 'column',
+    alignItems: 'flex-start',
     gap: 12,
+    marginLeft: 20,
+  },
+  expandedHeaderContent: {
+    flexDirection: "row",
+    alignItems: 'flex-start',
+    paddingTop: 3,
+    gap: 8,
   },
   statusIcon: {
-    marginLeft: 'auto',
-    marginRight: 8,
+    marginRight: 3,
   },
   locationText: {
     fontSize: 16,
     fontWeight: '500',
     color: '#fff',
+    marginRight: 4
   },
   expandedHeaderImage: {
-    width: 80,
-    height: 80,
+    width: 100,
+    height: 60,
     borderRadius: 12,
+    marginRight: 2,
   },
   expandedContent: {
     padding: 16,
@@ -947,7 +1045,7 @@ const styles = StyleSheet.create({
     color: '#d4ff00',
   },
   dropdownPlaceholder: {
-    backgroundColor: '#3d4f44',
+    backgroundColor: '#1e1e1eff',
     borderRadius: 12,
     padding: 14,
     marginBottom: 12,
@@ -955,6 +1053,35 @@ const styles = StyleSheet.create({
   dropdownText: {
     fontSize: 16,
     color: '#fff',
+  },
+  dropdownMenu: {
+    backgroundColor: '#3d4f44',
+    borderRadius: 12,
+    marginBottom: 12,
+    maxHeight: 250,
+    borderWidth: 2,
+    borderColor: '#d4ff00',
+  },
+  dropdownScroll: {
+    maxHeight: 250,
+  },
+  dropdownItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#2d3e34',
+    gap: 12,
+  },
+  dropdownItemImage: {
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+  },
+  dropdownItemText: {
+    fontSize: 16,
+    color: '#fff',
+    flex: 1,
   },
   scoreContainer: {
     flexDirection: 'row',
@@ -970,7 +1097,7 @@ const styles = StyleSheet.create({
     minWidth: 100,
   },
   scoreLabel: {
-    fontSize: 14,
+    fontSize: 18,
     fontWeight: '600',
     color: '#2d3e34',
     marginBottom: 4,
