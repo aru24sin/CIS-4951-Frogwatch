@@ -12,7 +12,7 @@ import { Colors } from '../../constants/Colors';
 import { useColorScheme } from '../../hooks/useColorScheme';
 
 // NOTE: adjust this import if your firebaseConfig path differs
-import { auth, db } from '../firebaseConfig'; // if this errors, try: "../../firebaseConfig"
+import { auth, db } from '../../src/firebaseConfig'; // if this errors, try: "../../firebaseConfig"
 
 export default function TabLayout() {
   const colorScheme = useColorScheme();
