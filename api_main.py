@@ -91,3 +91,13 @@ async def predict(
         if local_path and os.path.exists(local_path):
             try: os.remove(local_path)
             except Exception: pass
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(
+        "api_main:app",
+        host="0.0.0.0",
+        port=8000,
+        log_level="info",
+        reload=True
+    )
