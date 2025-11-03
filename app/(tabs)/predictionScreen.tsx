@@ -236,7 +236,7 @@ export default function PredictionScreen() {
     }
   };
 
-  // 🔄 Submit: upload via REST (no Blob), then write /submissions doc
+  // 🔄 Submit: upload via REST (no Blob), then write /submissions doc (+ expert auto-approve -> /recordings)
   const handleSubmit = async () => {
     const score = parseInt(confidenceInput, 10);
     if (Number.isNaN(score) || score < 0 || score > 100) {
@@ -252,6 +252,9 @@ export default function PredictionScreen() {
       setLoading(true);
 
       await ensureSignedIn();
+      // refresh token/claims just in case role changed
+      await auth.currentUser?.getIdToken(true);
+
       const user = auth.currentUser!;
       const profile = await getUserProfile(user.uid);
       const firstName = profile?.firstName ?? '';
@@ -277,19 +280,20 @@ export default function PredictionScreen() {
       const uid = user.uid;
       const storagePath = `submissions/${uid}/${fileId}`;
 
-      // ✅ Upload the raw file bytes via REST to avoid Blob issues
+      // ✅ Upload raw bytes via REST (simple media upload)
       const idToken = await user.getIdToken();
       const bucket = (app.options as any).storageBucket as string;
       if (!bucket) throw new Error('Missing Firebase storage bucket in config.');
 
       const uploadUrl =
-        `https://firebasestorage.googleapis.com/v0/b/${bucket}/o?name=${encodeURIComponent(storagePath)}`;
+        `https://firebasestorage.googleapis.com/v0/b/${bucket}/o?uploadType=media&name=${encodeURIComponent(storagePath)}`;
 
       const uploadRes = await FileSystem.uploadAsync(uploadUrl, audioUri, {
         httpMethod: 'POST',
         headers: {
           'Content-Type': contentType,
           'Authorization': `Bearer ${idToken}`,
+          // Optional metadata
           'x-goog-meta-predictedSpecies': predictedSpecies || '',
           'x-goog-meta-confidencePct': String(score),
           'x-goog-meta-client': 'frogwatch-ui',
@@ -356,7 +360,7 @@ export default function PredictionScreen() {
         ],
       });
 
-      // ✅ NEW: If expert skipped review, also create a curated entry in /recordings
+      // ✅ Expert auto-approve path: create curated /recordings entry too
       if (isExpertUser && submitAsExpert && status === 'approved') {
         const recRef = doc(collection(db, 'recordings'));
         await setDoc(recRef, {
@@ -417,7 +421,7 @@ export default function PredictionScreen() {
             <Ionicons name="arrow-back" size={28} color="#333" />
           </TouchableOpacity>
 
-          <TouchableOpacity onPress={() => Alert.alert('Menu pressed')} style={styles.iconButton}>
+        <TouchableOpacity onPress={() => Alert.alert('Menu pressed')} style={styles.iconButton}>
             <Ionicons name="menu" size={28} color="#333" />
           </TouchableOpacity>
         </View>
