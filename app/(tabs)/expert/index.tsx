@@ -1,61 +1,143 @@
 // app/(tabs)/expert/index.tsx
-import { Link } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
+import { Link, useRouter } from 'expo-router';
 import { collection, getCountFromServer, query, where } from 'firebase/firestore';
-import { useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, Text, View } from 'react-native';
+import { useCallback, useState } from 'react';
+import {
+  ActivityIndicator,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { db } from '../../firebaseConfig';
 
 export default function ExpertDashboard() {
+  const router = useRouter(); // ✅ for back nav
   const [counts, setCounts] = useState({ pending: 0, approved: 0, rejected: 0 });
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        const subs = collection(db, 'submissions');
-        const pending   = await getCountFromServer(query(subs, where('status', '==', 'pending')));
-        const approved  = await getCountFromServer(query(subs, where('status', '==', 'approved')));
-        const rejected  = await getCountFromServer(query(subs, where('status', '==', 'rejected')));
-        if (!alive) return;
-        setCounts({
-          pending:  pending.data().count || 0,
-          approved: approved.data().count || 0,
-          rejected: rejected.data().count || 0,
-        });
-      } finally {
-        if (alive) setLoading(false);
-      }
-    })();
-    return () => { alive = false; };
+  const loadCounts = useCallback(async () => {
+    setLoading(true);
+    try {
+      const col = collection(db, 'submissions');
+      const [pendingSnap, approvedSnap, rejectedSnap] = await Promise.all([
+        getCountFromServer(query(col, where('status', '==', 'pending'))),
+        getCountFromServer(query(col, where('status', '==', 'approved'))),
+        getCountFromServer(query(col, where('status', '==', 'rejected'))),
+      ]);
+
+      setCounts({
+        pending: pendingSnap.data().count || 0,
+        approved: approvedSnap.data().count || 0,
+        rejected: rejectedSnap.data().count || 0,
+      });
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  return (
-    <View style={{ flex: 1, padding: 16, gap: 16 }}>
-      <Text style={{ fontSize: 24, fontWeight: '700' }}>Expert Dashboard</Text>
+  useFocusEffect(
+    useCallback(() => {
+      loadCounts();
+    }, [loadCounts])
+  );
 
-      <View style={{ flexDirection: 'row', gap: 12 }}>
-        <View style={{ padding: 12, borderWidth: 1, borderRadius: 12 }}>
-          <Text style={{ fontWeight: '600' }}>Pending</Text>
-          <Text style={{ fontSize: 20 }}>{counts.pending}</Text>
-        </View>
-        <View style={{ padding: 12, borderWidth: 1, borderRadius: 12 }}>
-          <Text style={{ fontWeight: '600' }}>Approved</Text>
-          <Text style={{ fontSize: 20 }}>{counts.approved}</Text>
-        </View>
-        <View style={{ padding: 12, borderWidth: 1, borderRadius: 12 }}>
-          <Text style={{ fontWeight: '600' }}>Rejected</Text>
-          <Text style={{ fontSize: 20 }}>{counts.rejected}</Text>
-        </View>
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await loadCounts();
+    setRefreshing(false);
+  }, [loadCounts]);
+
+  return (
+    <ScrollView
+      style={{ flex: 1, backgroundColor: '#2d3e34' }}
+      contentContainerStyle={{ padding: 16, paddingTop: 64, gap: 16 }}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#d4ff00" />
+      }
+    >
+      {/* ✅ Header with Back button */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
+        <TouchableOpacity
+          onPress={() => router.replace('/(tabs)/homeScreen')}
+          style={{
+            width: 44,
+            height: 44,
+            borderRadius: 22,
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: 'rgba(0,0,0,0.2)',
+            marginRight: 12,
+          }}
+        >
+          <Ionicons name="arrow-back" size={24} color="#fff" />
+        </TouchableOpacity>
+
+        <Text style={{ fontSize: 24, fontWeight: '700', color: '#d4ff00' }}>
+          Expert Dashboard
+        </Text>
       </View>
 
-      {loading && <ActivityIndicator />}
+      <View style={{ flexDirection: 'row', gap: 12 }}>
+        {/* Pending box -> filtered list */}
+        <Link
+          href={{ pathname: '/(tabs)/expert/submissions-list', params: { status: 'pending' } }}
+          asChild
+        >
+          <Pressable
+            style={{ padding: 12, borderRadius: 12, backgroundColor: '#d4ff00', minWidth: 110 }}
+          >
+            <Text style={{ fontWeight: '700', color: '#0a0a0a' }}>Pending</Text>
+            <Text style={{ fontSize: 20, color: '#0a0a0a' }}>{counts.pending}</Text>
+          </Pressable>
+        </Link>
 
-      <Link href="./review-queue" asChild>
-        <Pressable style={{ padding: 14, borderRadius: 12, borderWidth: 1 }}>
-          <Text style={{ fontWeight: '600' }}>Open Review Queue</Text>
+        {/* Approved */}
+        <Link
+          href={{ pathname: '/(tabs)/expert/submissions-list', params: { status: 'approved' } }}
+          asChild
+        >
+          <Pressable
+            style={{ padding: 12, borderRadius: 12, backgroundColor: '#d4ff00', minWidth: 110 }}
+          >
+            <Text style={{ fontWeight: '700', color: '#0a0a0a' }}>Approved</Text>
+            <Text style={{ fontSize: 20, color: '#0a0a0a' }}>{counts.approved}</Text>
+          </Pressable>
+        </Link>
+
+        {/* Rejected */}
+        <Link
+          href={{ pathname: '/(tabs)/expert/submissions-list', params: { status: 'rejected' } }}
+          asChild
+        >
+          <Pressable
+            style={{ padding: 12, borderRadius: 12, backgroundColor: '#d4ff00', minWidth: 110 }}
+          >
+            <Text style={{ fontWeight: '700', color: '#0a0a0a' }}>Rejected</Text>
+            <Text style={{ fontSize: 20, color: '#0a0a0a' }}>{counts.rejected}</Text>
+          </Pressable>
+        </Link>
+      </View>
+
+      {loading && <ActivityIndicator color="#d4ff00" />}
+
+      <Link href="/(tabs)/expert/review-queue" asChild>
+        <Pressable
+          style={{
+            padding: 14,
+            borderRadius: 12,
+            backgroundColor: '#d4ff00',
+            alignSelf: 'flex-start',
+          }}
+        >
+          <Text style={{ fontWeight: '700', color: '#0a0a0a' }}>Open Review Queue</Text>
         </Pressable>
       </Link>
-    </View>
+    </ScrollView>
   );
 }

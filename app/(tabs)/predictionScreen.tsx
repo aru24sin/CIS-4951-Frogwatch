@@ -277,7 +277,7 @@ export default function PredictionScreen() {
       const uid = user.uid;
       const storagePath = `submissions/${uid}/${fileId}`;
 
-      // ✅ NEW: Upload the raw file bytes via REST to avoid Blob issues
+      // ✅ Upload the raw file bytes via REST to avoid Blob issues
       const idToken = await user.getIdToken();
       const bucket = (app.options as any).storageBucket as string;
       if (!bucket) throw new Error('Missing Firebase storage bucket in config.');
@@ -290,7 +290,6 @@ export default function PredictionScreen() {
         headers: {
           'Content-Type': contentType,
           'Authorization': `Bearer ${idToken}`,
-          // Optional custom metadata (available later via getMetadata):
           'x-goog-meta-predictedSpecies': predictedSpecies || '',
           'x-goog-meta-confidencePct': String(score),
           'x-goog-meta-client': 'frogwatch-ui',
@@ -356,6 +355,29 @@ export default function PredictionScreen() {
           },
         ],
       });
+
+      // ✅ NEW: If expert skipped review, also create a curated entry in /recordings
+      if (isExpertUser && submitAsExpert && status === 'approved') {
+        const recRef = doc(collection(db, 'recordings'));
+        await setDoc(recRef, {
+          userId: uid,
+          predictedSpecies: predictedSpecies || '',
+          confidence: score / 100,
+          ai: aiBlock,
+          notes: notes || '',
+          location: {
+            lat: Number.isFinite(lat) ? lat : 0,
+            lng: Number.isFinite(lon) ? lon : 0,
+            display: locationCity || '',
+          },
+          status: 'approved',
+          timestamp: serverTimestamp(),
+          timestamp_iso: nowIso,
+          sourceSubmission: submissionId,
+          storagePath,
+          contentType,
+        });
+      }
 
       if (submitAsExpert && isExpertUser) {
         Alert.alert('Submitted', 'Saved and marked approved (expert submission).');

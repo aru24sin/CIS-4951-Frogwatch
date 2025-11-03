@@ -1,8 +1,9 @@
+import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { addDoc, collection, doc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { getDownloadURL, getStorage, ref } from 'firebase/storage';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Button, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { db } from '../../../firebaseConfig';
 
 export default function ExpertReviewScreen() {
@@ -54,41 +55,125 @@ export default function ExpertReviewScreen() {
       });
 
       Alert.alert('Done', `Marked as ${status}`);
-      router.back();
+      router.replace('/(tabs)/expert/review-queue');
     } catch (err: any) {
+      console.log('Expert mark() failed:', err);
       Alert.alert('Error', err.message);
     } finally {
       setLoading(false);
     }
   }
 
-  if (loading) return <ActivityIndicator style={{ marginTop: 50 }} />;
+  if (loading) {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#2d3e34', alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator color="#d4ff00" />
+      </View>
+    );
+  }
 
-  if (!submission) return <Text>No submission found</Text>;
+  if (!submission) {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#2d3e34', padding: 16, paddingTop: 64 }}>
+        {/* Back */}
+        <TouchableOpacity
+          onPress={() => router.replace('/(tabs)/expert/review-queue')}
+          style={{
+            width: 44, height: 44, borderRadius: 22,
+            alignItems: 'center', justifyContent: 'center',
+            backgroundColor: 'rgba(0,0,0,0.2)', marginBottom: 12,
+          }}
+        >
+          <Ionicons name="arrow-back" size={24} color="#fff" />
+        </TouchableOpacity>
+        <Text style={{ color: '#fff' }}>No submission found</Text>
+      </View>
+    );
+  }
+
+  const confPct =
+    typeof submission.confidenceScore === 'number'
+      ? Math.round(Math.max(0, Math.min(1, submission.confidenceScore)) * 100)
+      : '—';
 
   return (
-    <View style={{ padding: 20 }}>
-      <Text style={{ fontSize: 18, fontWeight: '600' }}>Species: {submission.predictedSpecies}</Text>
-      <Text style={{ marginTop: 5 }}>Confidence: {Math.round((submission.confidenceScore ?? 0) * 100)}%</Text>
-      <Text style={{ marginTop: 5 }}>Location: {submission.location?.display ?? 'Unknown'}</Text>
+    <View style={{ flex: 1, backgroundColor: '#2d3e34', padding: 16, paddingTop: 64 }}>
+      {/* Back */}
+      <TouchableOpacity
+        onPress={() => router.replace('/(tabs)/expert/review-queue')}
+        style={{
+          width: 44, height: 44, borderRadius: 22,
+          alignItems: 'center', justifyContent: 'center',
+          backgroundColor: 'rgba(0,0,0,0.2)', marginBottom: 12,
+        }}
+      >
+        <Ionicons name="arrow-back" size={24} color="#fff" />
+      </TouchableOpacity>
 
-      <Text style={{ marginTop: 20 }}>Audio URL:</Text>
-      <Text selectable style={{ color: 'blue' }}>{audioUrl}</Text>
+      {/* Header */}
+      <Text style={{ fontSize: 24, fontWeight: '700', color: '#d4ff00', marginBottom: 12 }}>
+        Review Submission
+      </Text>
 
-      <Text style={{ marginTop: 20 }}>Notes:</Text>
+      {/* Details */}
+      <Text style={{ fontSize: 18, fontWeight: '600', color: '#fff' }}>
+        Species: <Text style={{ color: '#d4ff00' }}>{submission.predictedSpecies}</Text>
+      </Text>
+      <Text style={{ marginTop: 6, color: '#fff' }}>
+        Confidence: <Text style={{ color: '#d4ff00' }}>{confPct}%</Text>
+      </Text>
+      <Text style={{ marginTop: 6, color: '#fff' }}>
+        Location: <Text style={{ color: '#d4ff00' }}>{submission.location?.display ?? 'Unknown'}</Text>
+      </Text>
+
+      <Text style={{ marginTop: 16, color: '#fff' }}>Audio URL:</Text>
+      <Text selectable style={{ color: '#d4ff00' }}>{audioUrl}</Text>
+
+      <Text style={{ marginTop: 16, color: '#fff' }}>Notes</Text>
       <TextInput
-        style={{ borderWidth: 1, borderRadius: 8, padding: 10, marginTop: 5 }}
+        style={{
+          borderWidth: 2,
+          borderColor: '#d4ff00',
+          borderRadius: 12,
+          padding: 12,
+          marginTop: 6,
+          backgroundColor: 'rgba(0,0,0,0.2)',
+          color: '#fff',
+        }}
         placeholder="Type your review notes..."
+        placeholderTextColor="#cdd5cc"
         value={notes}
         onChangeText={setNotes}
         multiline
       />
 
-      <View style={{ marginTop: 20 }}>
-        <Button title="Approve" onPress={() => mark('approved')} />
-      </View>
-      <View style={{ marginTop: 10 }}>
-        <Button title="Reject" color="red" onPress={() => mark('rejected')} />
+      {/* Actions */}
+      <View style={{ marginTop: 20, flexDirection: 'row', gap: 12 }}>
+        <TouchableOpacity
+          onPress={() => mark('approved')}
+          style={{
+            flex: 1,
+            backgroundColor: '#d4ff00',
+            paddingVertical: 14,
+            borderRadius: 12,
+            alignItems: 'center',
+          }}
+        >
+          <Text style={{ fontWeight: '700', color: '#0a0a0a' }}>Approve</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          onPress={() => mark('rejected')}
+          style={{
+            flex: 1,
+            backgroundColor: '#d4ff00',
+            paddingVertical: 14,
+            borderRadius: 12,
+            alignItems: 'center',
+          }}
+        >
+          <Text style={{ fontWeight: '700', color: '#0a0a0a' }}>Reject</Text>
+        </TouchableOpacity>
       </View>
     </View>
   );

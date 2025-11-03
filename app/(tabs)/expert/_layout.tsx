@@ -1,3 +1,4 @@
+// app/(tabs)/expert/_layout.tsx
 import { Stack } from 'expo-router';
 
 export default function ExpertStackLayout() {
@@ -6,7 +7,10 @@ export default function ExpertStackLayout() {
       {/* Expert home dashboard */}
       <Stack.Screen name="index" />
 
-      {/* Shows pending/approved/rejected submissions */}
+      {/* Lists filtered submissions by status (pending/approved/rejected) */}
+      <Stack.Screen name="submissions-list" />
+
+      {/* Shows pending submissions */}
       <Stack.Screen name="review-queue" />
 
       {/* Individual submission review screen */}
