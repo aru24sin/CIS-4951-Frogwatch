@@ -2,10 +2,15 @@ import { Stack } from 'expo-router';
 
 export default function ExpertStackLayout() {
   return (
-    <Stack>
-      <Stack.Screen name="index" options={{ title: 'Expert Dashboard' }} />
-      <Stack.Screen name="review-queue" options={{ title: 'Review Queue' }} />
-      <Stack.Screen name="submission/[id]" options={{ title: 'Review Submission' }} />
+    <Stack screenOptions={{ headerShown: false }}>
+      {/* Expert home dashboard */}
+      <Stack.Screen name="index" />
+
+      {/* Shows pending/approved/rejected submissions */}
+      <Stack.Screen name="review-queue" />
+
+      {/* Individual submission review screen */}
+      <Stack.Screen name="submission/[id]" />
     </Stack>
   );
 }

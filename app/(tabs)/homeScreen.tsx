@@ -70,17 +70,17 @@ export default function HomeScreen() {
             </Text>
 
             <View style={styles.grid}>
-              <TouchableOpacity style={styles.button} onPress={() => router.push("./recordScreen")}>
+              <TouchableOpacity style={styles.button} onPress={() => router.push('/recordScreen')}>
                 <Ionicons name="radio-button-on" size={28} color="#ccff00" />
                 <Text style={styles.buttonText}>Recording</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity style={styles.button} onPress={() => router.push("./historyScreen")}>
+              <TouchableOpacity style={styles.button} onPress={() => router.push('/historyScreen')}>
                 <Ionicons name="bookmark" size={28} color="#ccff00" />
                 <Text style={styles.buttonText}>History</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity style={styles.button} onPress = {() => router.push("./mapHistoryScreen")}>
+              <TouchableOpacity style={styles.button} onPress = {() => router.push('/mapHistoryScreen')}>
                 <Ionicons name="map" size={28} color="#ccff00" />
                 <Text style={styles.buttonText}>Map</Text>
               </TouchableOpacity>
@@ -95,7 +95,7 @@ export default function HomeScreen() {
                 <Text style={styles.buttonText}>Profile</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity style={styles.button}>
+              <TouchableOpacity style={styles.button} onPress ={() => router.push('/settingsScreen')}>
                 <Ionicons name="settings" size={28} color="#ccff00" />
                 <Text style={styles.buttonText}>Settings</Text>
               </TouchableOpacity>

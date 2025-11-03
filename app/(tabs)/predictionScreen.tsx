@@ -23,6 +23,8 @@ import { signInWithEmailAndPassword } from 'firebase/auth';
 import { collection, doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
 import app, { auth, db } from '../firebaseConfig';
 
+// (Removed Firebase Storage SDK import to avoid Blob path)
+
 type TopItem = { species: string; confidence: number };
 
 /* ---------------- species images ---------------- */
@@ -36,7 +38,6 @@ const speciesImageMap: Record<string, any> = {
   'American Toad': require('../../assets/frogs_background/american_toad.jpg'),
   'Midland Chorus Frog': require('../../assets/frogs_background/midland_chorus_frog.jpg'),
 };
-const placeholderImage = require('../../assets/frogs/placeholder.png');
 
 /* ---------------- dynamic API base (dev) ---------------- */
 const DEV_HOST_OVERRIDE = '';
@@ -235,6 +236,7 @@ export default function PredictionScreen() {
     }
   };
 
+  // 🔄 Submit: upload via REST (no Blob), then write /submissions doc
   const handleSubmit = async () => {
     const score = parseInt(confidenceInput, 10);
     if (Number.isNaN(score) || score < 0 || score > 100) {
@@ -251,8 +253,6 @@ export default function PredictionScreen() {
 
       await ensureSignedIn();
       const user = auth.currentUser!;
-      const idToken = await user.getIdToken();
-
       const profile = await getUserProfile(user.uid);
       const firstName = profile?.firstName ?? '';
       const lastName = profile?.lastName ?? '';
@@ -265,37 +265,50 @@ export default function PredictionScreen() {
         Alert.alert('Audio missing', 'The recorded file is no longer available. Please re-record.');
         return;
       }
+
       const contentType = guessMime(audioUri);
       const ext =
         contentType === 'audio/wav' ? '.wav' :
         contentType === 'audio/m4a' ? '.m4a' :
         '.mp3';
 
-      const fileName = makeUniqueFileName(ext);
-      const filePath = `uploaded_audios/${fileName}`;
+      // Storage path for submission
+      const fileId = makeUniqueFileName(ext);
+      const uid = user.uid;
+      const storagePath = `submissions/${uid}/${fileId}`;
 
-      const bucket = (app.options as any).storageBucket as string | undefined;
+      // ✅ NEW: Upload the raw file bytes via REST to avoid Blob issues
+      const idToken = await user.getIdToken();
+      const bucket = (app.options as any).storageBucket as string;
       if (!bucket) throw new Error('Missing Firebase storage bucket in config.');
-      const uploadUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o?name=${encodeURIComponent(filePath)}`;
 
-      const result = await FileSystem.uploadAsync(uploadUrl, audioUri, {
+      const uploadUrl =
+        `https://firebasestorage.googleapis.com/v0/b/${bucket}/o?name=${encodeURIComponent(storagePath)}`;
+
+      const uploadRes = await FileSystem.uploadAsync(uploadUrl, audioUri, {
         httpMethod: 'POST',
         headers: {
           'Content-Type': contentType,
-          Authorization: `Bearer ${idToken}`,
+          'Authorization': `Bearer ${idToken}`,
+          // Optional custom metadata (available later via getMetadata):
+          'x-goog-meta-predictedSpecies': predictedSpecies || '',
+          'x-goog-meta-confidencePct': String(score),
+          'x-goog-meta-client': 'frogwatch-ui',
+          'x-goog-meta-lat': Number.isFinite(lat) ? String(lat) : '',
+          'x-goog-meta-lon': Number.isFinite(lon) ? String(lon) : '',
+          'x-goog-meta-submitterUid': uid,
         },
+        uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
       });
 
-      if (result.status < 200 || result.status >= 300) {
-        console.log('Storage upload failed:', result.status, result.body?.slice?.(0, 400));
-        throw new Error(`Storage upload failed (${result.status})`);
+      if (uploadRes.status < 200 || uploadRes.status >= 300) {
+        throw new Error(`Storage upload failed (${uploadRes.status}): ${uploadRes.body?.slice?.(0, 200)}`);
       }
 
-      const recRef = doc(collection(db, 'recordings'));
-      const recordingId = recRef.id;
-
+      // Firestore doc in /submissions (review queue)
+      const docRef = doc(collection(db, 'submissions'));
+      const submissionId = docRef.id;
       const nowIso = new Date().toISOString();
-      const audioURL = `/get-audio/${fileName}`;
 
       const aiBlock = {
         species: predictedSpecies || '',
@@ -306,56 +319,48 @@ export default function PredictionScreen() {
         })),
       };
 
-      const baseDoc = {
-        recordingId,
-        createdBy: user.uid,
-        userId: user.uid,
+      const isExpertUser = role === 'expert' || role === 'admin';
+      const status = submitAsExpert && isExpertUser ? 'approved' : 'pending';
+
+      await setDoc(docRef, {
+        submissionId,
+        ownerUid: uid,
+        storagePath,     // e.g., submissions/{uid}/{fileId}
+        contentType,
         predictedSpecies: predictedSpecies || '',
-        species: '',
         confidenceScore: score / 100,
         top3,
         ai: aiBlock,
-        fileName,
-        filePath,
-        contentType,
-        audioURL,
         notes: notes || '',
         location: {
           lat: Number.isFinite(lat) ? lat : 0,
           lng: Number.isFinite(lon) ? lon : 0,
+          display: locationCity || '',
         },
-        history: [{ action: 'submitted', actorId: user.uid, timestamp: nowIso }],
-        timestamp: serverTimestamp(),
-        timestamp_iso: nowIso,
+        status,          // 'pending' (volunteers) or 'approved' (experts skipping review)
+        createdAt: serverTimestamp(),
+        createdAt_iso: nowIso,
         submitter: {
-          uid: user.uid,
+          uid,
           displayName,
           firstName,
           lastName,
           email: userEmail,
+          role: role ?? 'volunteer',
         },
-      };
-
-      const isExpert = role === 'expert' || role === 'admin';
-
-      if (submitAsExpert && isExpert) {
-        await setDoc(recRef, {
-          ...baseDoc,
-          status: 'approved',
-          expertReview: {
-            species: predictedSpecies || '',
-            confidence: score / 100,
-            reviewer: { uid: user.uid, firstName, lastName },
-            reviewedAt: serverTimestamp(),
+        history: [
+          {
+            action: submitAsExpert && isExpertUser ? 'submitted_approved' : 'submitted',
+            actorId: uid,
+            timestamp_iso: nowIso,
           },
-        });
-        Alert.alert('Submitted', 'Your recording was saved and approved as an expert submission.');
+        ],
+      });
+
+      if (submitAsExpert && isExpertUser) {
+        Alert.alert('Submitted', 'Saved and marked approved (expert submission).');
       } else {
-        await setDoc(recRef, {
-          ...baseDoc,
-          status: 'needs_review',
-        });
-        Alert.alert('Submitted', 'Your recording was saved');
+        Alert.alert('Submitted', 'Your recording was saved for expert review.');
       }
     } catch (err: any) {
       console.log('Submit failed details:', { name: err?.name, code: err?.code, message: err?.message });
@@ -379,7 +384,7 @@ export default function PredictionScreen() {
         <View style={[styles.background, styles.solidBackground]} />
       )}
 
-      <ScrollView 
+      <ScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
@@ -466,14 +471,14 @@ export default function PredictionScreen() {
           </TouchableOpacity>
 
           {/* Edit Button */}
-          <TouchableOpacity 
+          <TouchableOpacity
             style={[styles.cardButton, styles.editButton]}
             onPress={() => setShowEditOptions(!showEditOptions)}
           >
             <Text style={styles.editButtonText}>edit</Text>
           </TouchableOpacity>
 
-          {/* Edit Options Card (conditionally shown below edit button) */}
+          {/* Edit Options Card */}
           {showEditOptions && (
             <View style={styles.editOptionsCard}>
               {/* Species Picker */}
@@ -512,7 +517,7 @@ export default function PredictionScreen() {
           )}
 
           {/* Submit Button */}
-          <TouchableOpacity 
+          <TouchableOpacity
             style={[styles.cardButton, styles.submitButton]}
             onPress={handleSubmit}
           >

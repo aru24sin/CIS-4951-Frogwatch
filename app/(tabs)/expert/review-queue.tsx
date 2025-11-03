@@ -10,7 +10,7 @@ type Rec = {
   ai?: { species?: string; confidence?: number };
   predictedSpecies?: string;
   status: string;
-  timestamp?: any;
+  createdAt?: any;
 };
 
 export default function ReviewQueue() {
@@ -18,11 +18,11 @@ export default function ReviewQueue() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const ref = collection(db, 'recordings');
+    const ref = collection(db, 'submissions');
     const q = query(
       ref,
-      where('status', '==', 'needs_review'),
-      orderBy('timestamp', 'desc'),
+      where('status', '==', 'pending'),
+      orderBy('createdAt', 'desc'),
       limit(50)
     );
 

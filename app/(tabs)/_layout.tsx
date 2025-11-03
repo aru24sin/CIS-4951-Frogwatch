@@ -62,8 +62,8 @@ export default function TabLayout() {
       {/* Expert tab appears only for expert/admin (once authReady) */}
       {authReady && (role === 'expert' || role === 'admin') && (
         <Tabs.Screen
-          name="expert/index"
-          options={{ title: 'Expert' }}
+          name="expert"
+          options={{ title: 'expert' }}
         />
       )}
     </Tabs>

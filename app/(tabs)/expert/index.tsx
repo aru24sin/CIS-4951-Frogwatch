@@ -6,22 +6,22 @@ import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import { db } from '../../firebaseConfig';
 
 export default function ExpertDashboard() {
-  const [counts, setCounts] = useState({ needs: 0, approved: 0, discarded: 0 });
+  const [counts, setCounts] = useState({ pending: 0, approved: 0, rejected: 0 });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
-        const rec = collection(db, 'recordings');
-        const needs     = await getCountFromServer(query(rec, where('status','==','needs_review')));
-        const approved  = await getCountFromServer(query(rec, where('status','==','approved')));
-        const discarded = await getCountFromServer(query(rec, where('status','==','discarded')));
+        const subs = collection(db, 'submissions');
+        const pending   = await getCountFromServer(query(subs, where('status', '==', 'pending')));
+        const approved  = await getCountFromServer(query(subs, where('status', '==', 'approved')));
+        const rejected  = await getCountFromServer(query(subs, where('status', '==', 'rejected')));
         if (!alive) return;
         setCounts({
-          needs: needs.data().count || 0,
+          pending:  pending.data().count || 0,
           approved: approved.data().count || 0,
-          discarded: discarded.data().count || 0,
+          rejected: rejected.data().count || 0,
         });
       } finally {
         if (alive) setLoading(false);
@@ -36,16 +36,16 @@ export default function ExpertDashboard() {
 
       <View style={{ flexDirection: 'row', gap: 12 }}>
         <View style={{ padding: 12, borderWidth: 1, borderRadius: 12 }}>
-          <Text style={{ fontWeight: '600' }}>Needs Review</Text>
-          <Text style={{ fontSize: 20 }}>{counts.needs}</Text>
+          <Text style={{ fontWeight: '600' }}>Pending</Text>
+          <Text style={{ fontSize: 20 }}>{counts.pending}</Text>
         </View>
         <View style={{ padding: 12, borderWidth: 1, borderRadius: 12 }}>
           <Text style={{ fontWeight: '600' }}>Approved</Text>
           <Text style={{ fontSize: 20 }}>{counts.approved}</Text>
         </View>
         <View style={{ padding: 12, borderWidth: 1, borderRadius: 12 }}>
-          <Text style={{ fontWeight: '600' }}>Discarded</Text>
-          <Text style={{ fontSize: 20 }}>{counts.discarded}</Text>
+          <Text style={{ fontWeight: '600' }}>Rejected</Text>
+          <Text style={{ fontSize: 20 }}>{counts.rejected}</Text>
         </View>
       </View>
 
