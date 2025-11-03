@@ -139,6 +139,16 @@ export default function PredictionScreen() {
   const [locationCity, setLocationCity] = useState('Loading location...');
   const mountedRef = useRef(true);
 
+  // === NEW: derive expert/admin and ensure volunteer cannot keep the toggle ===
+  const isExpertUser = useMemo(() => {
+    const r = (role || '').toLowerCase();
+    return r === 'expert' || r === 'admin';
+  }, [role]);
+
+  useEffect(() => {
+    if (!isExpertUser && submitAsExpert) setSubmitAsExpert(false);
+  }, [isExpertUser, submitAsExpert]);
+
   useEffect(() => {
     console.log('[predict] API_BASE =', API_BASE);
     return () => {
@@ -322,7 +332,7 @@ export default function PredictionScreen() {
         })),
       };
 
-      const isExpertUser = role === 'expert' || role === 'admin';
+      // compute final status (volunteers always 'pending')
       const status = submitAsExpert && isExpertUser ? 'approved' : 'pending';
 
       await setDoc(docRef, {
@@ -421,7 +431,7 @@ export default function PredictionScreen() {
             <Ionicons name="arrow-back" size={28} color="#333" />
           </TouchableOpacity>
 
-        <TouchableOpacity onPress={() => Alert.alert('Menu pressed')} style={styles.iconButton}>
+          <TouchableOpacity onPress={() => Alert.alert('Menu pressed')} style={styles.iconButton}>
             <Ionicons name="menu" size={28} color="#333" />
           </TouchableOpacity>
         </View>
@@ -551,8 +561,8 @@ export default function PredictionScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Expert Options */}
-        {(role === 'expert' || role === 'admin') && (
+        {/* Expert Options — shown ONLY for expert/admin */}
+        {isExpertUser && (
           <View style={styles.expertBox}>
             <Text style={styles.expertTitle}>Expert Options</Text>
             <TouchableOpacity onPress={() => setSubmitAsExpert(v => !v)} style={styles.expertCheckbox}>
