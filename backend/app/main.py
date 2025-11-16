@@ -3,7 +3,7 @@ from fastapi import FastAPI, Depends, File, UploadFile
 from fastapi.security import HTTPBearer
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
-from backend.app.routes import audio, users, recordings, approvals, feedback, auth, admin
+from backend.app.routes import audio, users, recordings, approvals, feedback, auth, admin, settings
 
 # Load env first
 load_dotenv()
@@ -36,6 +36,8 @@ app.include_router(auth.router)
 app.include_router(ml_runtime.router)   # /ml/predict
 app.include_router(ml_plain.router)     # /predict
 app.include_router(admin.router)
+app.include_router(settings.router)
+
 
 
 # -------- Protected routes (Bearer token required) --------
@@ -69,3 +71,4 @@ def healthz():
 async def _debug_upload(file: UploadFile = File(...)):
     data = await file.read()
     return {"filename": file.filename, "bytes": len(data)}
+
