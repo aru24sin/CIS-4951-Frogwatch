@@ -20,4 +20,6 @@ ENV PORT=8080
 
 # Start FastAPI with uvicorn
 # Note: we use a shell command so we can read $PORT
-CMD ["sh", "-c", "uvicorn backend.app.main:app --host 0.0.0.0 --port ${PORT:-8080}"]
+# Use PORT from environment (Cloud Run sets this automatically, usually 8080)
+CMD exec uvicorn backend.app.main:app --host 0.0.0.0 --port ${PORT:-8080}
+
