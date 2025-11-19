@@ -61,7 +61,11 @@ function pickDevHost() {
   return m?.[1] ?? 'localhost';
 }
 
-export const API_BASE = __DEV__ ? `http://${pickDevHost()}:8000` : 'https://your-production-domain';
+//export const API_BASE = __DEV__ ? `http://${pickDevHost()}:8000` : 'https://your-production-domain';
+export const API_BASE =
+  process.env.EXPO_PUBLIC_API_BASE_URL ??
+  'https://frogwatch-backend-1066546787031.us-central1.run.app';
+
 
 /* ---------------- helpers ---------------- */
 function guessMime(uri: string): string {
