@@ -1,25 +1,28 @@
-# Use a small Python image
 FROM python:3.11-slim
 
-# Workdir inside the container
+# Work inside /app in the container
 WORKDIR /app
 
-# (Optional but good) prevent Python from writing .pyc files / buffering
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
+# System deps (minimal)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    ffmpeg \
+ && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies
+# Install Python deps first (for layer caching)
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the rest of the project into the image
+# 🔴 Explicitly copy the Firebase service account JSON into /app/backend
+COPY backend/frogwatch-backend-firebase-adminsdk-fbsvc-38e9d9024d.json backend/
+
+# Copy the rest of the project source
 COPY . .
 
-# Cloud Run will tell us which port to listen on via $PORT
+# Cloud Run sets PORT; default to 8080 if not set
 ENV PORT=8080
+ENV USE_PIP_PANNS=1
 
-# Start FastAPI with uvicorn
-# Note: we use a shell command so we can read $PORT
-# Use PORT from environment (Cloud Run sets this automatically, usually 8080)
-CMD exec uvicorn backend.app.main:app --host 0.0.0.0 --port ${PORT:-8080}
 
+# Start FastAPI app
+CMD ["sh", "-c", "uvicorn backend.app.main:app --host 0.0.0.0 --port ${PORT:-8080}"]
