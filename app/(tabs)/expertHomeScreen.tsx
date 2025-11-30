@@ -1,4 +1,4 @@
-// homeScreen.tsx
+// expertHomeScreen.tsx
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { onAuthStateChanged } from "firebase/auth";
@@ -7,7 +7,7 @@ import React, { useEffect, useState } from "react";
 import { ImageBackground, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { auth, db } from "../firebaseConfig";
 
-export default function HomeScreen() {
+export default function ExpertHomeScreen() {
   const router = useRouter();
   const [firstName, setFirstName] = useState<string | null>(null);
   const [lastName, setLastName] = useState<string | null>(null);
@@ -52,53 +52,64 @@ export default function HomeScreen() {
   const today = new Date();
   const formattedDate = today.toLocaleDateString("en-US", { weekday: "long", day: "numeric", month: "long" });
 
+  const buttons = [
+    {
+      icon: "radio-button-on" as const,
+      label: "Recording",
+      route: "./recordScreen",
+    },
+    {
+      icon: "bookmark" as const,
+      label: "History",
+      route: "./historyScreen",
+    },
+    {
+      icon: "map" as const,
+      label: "Map",
+      route: "./mapHistoryScreen",
+    },
+    {
+      icon: "time" as const,
+      label: "Submits",
+      route: "./submitsScreen",
+    },
+    {
+      icon: "person-circle" as const,
+      label: "Profile",
+      route: "./settingsScreen",
+    },
+    {
+      icon: "settings" as const,
+      label: "Settings",
+      route: "./settingsScreen",
+    },
+  ];
+
   return (
     <ImageBackground source={require("../../assets/images/homeBackground.png")} style={styles.background} resizeMode="cover">
       <ScrollView contentContainerStyle={styles.scrollContainer} showsVerticalScrollIndicator={false}>
         <View style={styles.overlay}>
           <View>
-
             <Text style={styles.hello}>Hello{fullName ? `, ${fullName}` : ","}</Text>
             <Text style={styles.date}>{formattedDate}</Text>
-
           </View>
 
-          {/* Status + Buttons pinned to bottom */}
           <View style={styles.bottomSection}>
             <Text style={styles.status}>
               Status: <Text style={{ color: "white" }}>Online</Text>
             </Text>
 
             <View style={styles.grid}>
-              <TouchableOpacity style={styles.button} onPress={() => router.push("./recordScreen")}>
-                <Ionicons name="radio-button-on" size={28} color="#ccff00" />
-                <Text style={styles.buttonText}>Recording</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity style={styles.button} onPress={() => router.push("./historyScreen")}>
-                <Ionicons name="bookmark" size={28} color="#ccff00" />
-                <Text style={styles.buttonText}>History</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity style={styles.button} onPress = {() => router.push("./mapHistoryScreen")}>
-                <Ionicons name="map" size={28} color="#ccff00" />
-                <Text style={styles.buttonText}>Map</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity style={styles.button}>
-                <Ionicons name="time" size={28} color="#ccff00" />
-                <Text style={styles.buttonText}>Submits</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity style={styles.button}>
-                <Ionicons name="person-circle" size={28} color="#ccff00" />
-                <Text style={styles.buttonText}>Profile</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity style={styles.button}>
-                <Ionicons name="settings" size={28} color="#ccff00" />
-                <Text style={styles.buttonText}>Settings</Text>
-              </TouchableOpacity>
+              {buttons.map((button, index) => (
+                <TouchableOpacity
+                  key={index}
+                  style={styles.button}
+                  onPress={() => router.push(button.route as any)}
+                >
+                  <Ionicons name={button.icon} size={28} color="#ccff00" />
+                  <Text style={styles.buttonText}>{button.label}</Text>
+                </TouchableOpacity>
+              ))}
             </View>
           </View>
         </View>
@@ -115,28 +126,15 @@ const styles = StyleSheet.create({
   hello: { marginTop: 20, fontSize: 32, fontWeight: "400", color: "#f2f2f2ff" },
   date: { fontSize: 32, fontWeight: "500", color: "#ccff00", marginBottom: 12 },
 
-  logo: { width: 280, height: 280, resizeMode: 'contain', alignSelf: 'center', marginTop: 8 },
-
-  // NEW: brand style
-  brand: {
-    fontSize: 50,
-    fontWeight: "400",
-    color: "#2D3E32",
-    textAlign: "center",
-    marginTop: 10,
-    marginBottom: 0,
-    letterSpacing: 5,
-  },
-
   bottomSection: { marginTop: 20 },
   status: { fontSize: 18, color: "#ffffffff", marginBottom: 20 },
   grid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" },
   button: {
-    width: "32.5%",
+    width: "32%",
     height: 90,
     backgroundColor: "rgba(47, 66, 51, 0.9)",
     borderRadius: 20,
-    marginBottom: 4,
+    marginBottom: 8,
     justifyContent: "center",
     alignItems: "center",
   },

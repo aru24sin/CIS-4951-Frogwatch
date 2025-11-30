@@ -1,6 +1,7 @@
 // login.tsx
 import { Link, useRouter } from 'expo-router';
 import { sendPasswordResetEmail, signInWithEmailAndPassword } from 'firebase/auth';
+import { doc, getDoc } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import React, { useState } from 'react';
 import {
@@ -14,7 +15,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { auth, functions } from '../firebaseConfig';
+import { auth, db, functions } from '../firebaseConfig';
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -39,8 +40,19 @@ export default function LoginScreen() {
     try {
       const cred = await signInWithEmailAndPassword(auth, email.trim(), password);
       console.log('Logged in as:', cred.user.email);
-      // Go straight to the Home tab
-      router.replace('./homeScreen');
+      
+      // Fetch user data to determine role
+      const userDoc = await getDoc(doc(db, "users", cred.user.uid));
+      const userData = userDoc.data() || {};
+      
+      // Route to appropriate home screen based on role
+      if (userData.isAdmin) {
+        router.replace('./adminHomeScreen');
+      } else if (userData.isExpert) {
+        router.replace('./expertHomeScreen');
+      } else {
+        router.replace('./volunteerHomeScreen');
+      }
     } catch (e: any) {
       setError(e?.message ?? 'Login failed.');
     } finally {
@@ -48,51 +60,50 @@ export default function LoginScreen() {
     }
   };
 
-const handleForgot = async () => {
-  // ==== simple required-fields check ====
-  if (
-    !fpEmail.trim() ||
-    !ans1.trim() ||
-    !ans2.trim() ||
-    !ans3.trim()
-  ) {
-    Alert.alert('Please fill out all fields.');
-    return;
-  }
-  // ======================================
-
-  setFpBusy(true);
-  try {
-    const verify = httpsCallable(functions, 'verifyAnswers');
-    const res: any = await verify({
-      email: fpEmail.trim().toLowerCase(),
-      answers: [ans1.trim(), ans2.trim(), ans3.trim()],
-    });
-
-    if (res?.data?.allow) {
-      try {
-        await sendPasswordResetEmail(auth, fpEmail.trim().toLowerCase());
-      } catch {}
+  const handleForgot = async () => {
+    // ==== simple required-fields check ====
+    if (
+      !fpEmail.trim() ||
+      !ans1.trim() ||
+      !ans2.trim() ||
+      !ans3.trim()
+    ) {
+      Alert.alert('Please fill out all fields.');
+      return;
     }
+    // ======================================
 
-    Alert.alert(
-      'Check your email',
-      "If an account exists for that username, you will receive a password reset email."
-    );
-    setForgotOpen(false);
-    setFpEmail(''); setAns1(''); setAns2(''); setAns3('');
-  } catch (err) {
-    console.log('Forgot flow error:', err);
-    Alert.alert(
-      'Check your email',
-      "If an account exists for that username, you will receive a password reset email."
-    );
-    setForgotOpen(false);
-  } finally {
-    setFpBusy(false);
-  }
-};
+    setFpBusy(true);
+    try {
+      const verify = httpsCallable(functions, 'verifyAnswers');
+      const res: any = await verify({
+        email: fpEmail.trim().toLowerCase(),
+        answers: [ans1.trim(), ans2.trim(), ans3.trim()],
+      });
 
+      if (res?.data?.allow) {
+        try {
+          await sendPasswordResetEmail(auth, fpEmail.trim().toLowerCase());
+        } catch {}
+      }
+
+      Alert.alert(
+        'Check your email',
+        "If an account exists for that username, you will receive a password reset email."
+      );
+      setForgotOpen(false);
+      setFpEmail(''); setAns1(''); setAns2(''); setAns3('');
+    } catch (err) {
+      console.log('Forgot flow error:', err);
+      Alert.alert(
+        'Check your email',
+        "If an account exists for that username, you will receive a password reset email."
+      );
+      setForgotOpen(false);
+    } finally {
+      setFpBusy(false);
+    }
+  };
 
   return (
     <ImageBackground
