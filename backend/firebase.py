@@ -1,23 +1,26 @@
 # backend/firebase.py
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 import firebase_admin
 from firebase_admin import credentials, firestore
 
-# Load .env early (so GOOGLE_APPLICATION_CREDENTIALS is available)
+# Load .env for local development (harmless in Cloud Run)
 load_dotenv()
 
-print("🔑 GOOGLE_APPLICATION_CREDENTIALS =", os.getenv("GOOGLE_APPLICATION_CREDENTIALS"))
+# If running on Cloud Run, use the secret-mounted path
+if "GOOGLE_APPLICATION_CREDENTIALS" in os.environ:
+    cred_path = os.environ["GOOGLE_APPLICATION_CREDENTIALS"]
+else:
+    # Local development fallback: use your local JSON
+    BASE_DIR = Path(__file__).resolve().parent
+    cred_path = BASE_DIR / "keys" / "frogwatch-service.json"
 
 # Initialize Firebase only once
 if not firebase_admin._apps:
-    cred_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-    if cred_path and os.path.exists(cred_path):
-        cred = credentials.Certificate(cred_path)
-        firebase_admin.initialize_app(cred)
-    else:
-        # Falls back to Application Default Credentials
-        firebase_admin.initialize_app()
+    cred = credentials.Certificate(str(cred_path))
+    firebase_admin.initialize_app(cred)
 
-# Export Firestore client
+# Firestore client
 db = firestore.client()
+

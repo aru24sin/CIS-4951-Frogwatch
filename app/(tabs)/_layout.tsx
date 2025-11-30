@@ -12,7 +12,7 @@ import { Colors } from '../../constants/Colors';
 import { useColorScheme } from '../../hooks/useColorScheme';
 
 // NOTE: adjust this import if your firebaseConfig path differs
-import { auth, db } from '../firebaseConfig'; // if this errors, try: "../../firebaseConfig"
+import { auth, db } from '../../src/firebaseConfig'; // if this errors, try: "../../firebaseConfig"
 
 export default function TabLayout() {
   const colorScheme = useColorScheme();
@@ -62,8 +62,8 @@ export default function TabLayout() {
       {/* Expert tab appears only for expert/admin (once authReady) */}
       {authReady && (role === 'expert' || role === 'admin') && (
         <Tabs.Screen
-          name="expert/index"
-          options={{ title: 'Expert' }}
+          name="expert"
+          options={{ title: 'expert' }}
         />
       )}
     </Tabs>

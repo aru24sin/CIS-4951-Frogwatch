@@ -5,15 +5,15 @@ import { onAuthStateChanged, signOut, updatePassword } from 'firebase/auth';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    ScrollView,
-    StyleSheet,
-    Switch,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { auth, db } from '../firebaseConfig';
 
@@ -312,9 +312,9 @@ export default function SettingsScreen() {
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={28} color="#2d3e34" />
-        </TouchableOpacity>
+      <TouchableOpacity onPress={() => router.push('./homeScreen')} style={styles.iconButton}>
+                   <Ionicons name="arrow-back" size={28} color="#fff" />
+                 </TouchableOpacity>
 
         <View>
           <Text style={styles.headerTitle}>Settings</Text>
@@ -1130,6 +1130,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+  },
+  iconButton: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: 'rgba(0, 0, 0, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   backButton: {
     width: 50,

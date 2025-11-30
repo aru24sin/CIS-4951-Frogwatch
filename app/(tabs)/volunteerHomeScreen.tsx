@@ -1,24 +1,30 @@
 // volunteerHomeScreen.tsx
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { onAuthStateChanged } from "firebase/auth";
+import { getIdTokenResult, onAuthStateChanged } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import React, { useEffect, useState } from "react";
 import { ImageBackground, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { auth, db } from "../firebaseConfig";
 
+type Role = "volunteer" | "expert" | "admin";
+
 export default function VolunteerHomeScreen() {
   const router = useRouter();
   const [firstName, setFirstName] = useState<string | null>(null);
   const [lastName, setLastName] = useState<string | null>(null);
+  const [role, setRole] = useState<Role>("volunteer");
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (user) => {
       if (!user) {
         setFirstName(null);
         setLastName(null);
+        setRole("volunteer");
         return;
       }
+
+      // ---- Load display name bits
       try {
         const snap = await getDoc(doc(db, "users", user.uid));
         const data = snap.data() || {};
@@ -37,8 +43,22 @@ export default function VolunteerHomeScreen() {
           setFirstName(local ? local : null);
           setLastName(null);
         }
+
+        // ---- Load role: custom claim -> users doc -> fallback
+        let r: string | undefined;
+        try {
+          const idTok = await getIdTokenResult(user, true);
+          r = idTok.claims?.role as string | undefined;
+        } catch {}
+        if (!r) {
+          const userRole = (data.role || data.Role || "").toString().toLowerCase();
+          r = userRole || "volunteer";
+        }
+        if (r === "expert" || r === "admin") setRole(r as Role);
+        else setRole("volunteer");
       } catch (e) {
-        console.warn("Profile load failed:", e);
+        console.warn("Profile/role load failed:", e);
+        setRole("volunteer");
       }
     });
     return () => unsub();

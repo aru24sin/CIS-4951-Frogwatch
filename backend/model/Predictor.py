@@ -1,3 +1,10 @@
+# backend/model/Predictor.py
+# Head-only pipeline:
+#   wav (resampled to 32k mono) -> CNN14 embedding [1,2048] -> MLP head -> logits [1,C]
+# - Strictly loads ONLY the specified head file (no filename fallback)
+# - CNN14 via: PyPI (panns-inference) -> local TorchScript -> torch.hub
+# - Robust shape handling to avoid "too many indices" errors
+
 from __future__ import annotations
 import os, json, importlib
 from pathlib import Path
@@ -98,7 +105,11 @@ def _cnn14_via_pip() -> nn.Module:
         def forward(self, x: torch.Tensor):
             # x: [1, T] @ 32k
             y = x.squeeze(0).detach().cpu().numpy().astype(np.float32)
-            outputs = self.at.inference(y)  # some versions don't accept sr=...
+            if y.ndim == 1:
+                y_in = y[None, :]        # (1, T) — add batch dim
+            else:
+                y_in = y
+            outputs = self.at.inference(y_in)
             if isinstance(outputs, dict) and "embedding" in outputs:
                 emb = outputs["embedding"]             # (1,2048) or (2048,)
             elif isinstance(outputs, (list, tuple)) and len(outputs) >= 2:

@@ -1,6 +1,7 @@
 // app/(tabs)/historyScreen.tsx
 import { Ionicons } from '@expo/vector-icons';
 import { Audio } from 'expo-av';
+import { useRouter } from 'expo-router'; // ✅ add this
 import { onAuthStateChanged } from 'firebase/auth';
 import {
   collection, DocumentData, onSnapshot, query, Timestamp, where
@@ -53,7 +54,11 @@ function pickDevHost() {
   const m = url?.match(/\/\/([^/:]+):\d+/);
   return m?.[1] ?? 'localhost';
 }
-const API_BASE = __DEV__ ? `http://${pickDevHost()}:8000` : 'https://your-production-domain';
+//const API_BASE = __DEV__ ? `http://${pickDevHost()}:8000` : 'https://your-production-domain';
+const API_BASE =
+  process.env.EXPO_PUBLIC_API_BASE_URL ??
+  'https://frogwatch-backend-1066546787031.us-central1.run.app';
+
 
 function resolveAudioURL(d: any): string | undefined {
   const filePath = d?.filePath || (d?.fileName ? `uploaded_audios/${d.fileName}` : undefined);
@@ -84,6 +89,8 @@ async function getCityFromCoords(lat: number, lon: number): Promise<string> {
 }
 
 export default function HistoryScreen() {
+  const router = useRouter(); // ✅ add this
+
   const [recordings, setRecordings] = useState<Recording[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorText, setErrorText] = useState<string | null>(null);
@@ -116,7 +123,7 @@ export default function HistoryScreen() {
         async (snap) => {
           const rows: Recording[] = [];
           let index = 1;
-          
+
           for (const doc of snap.docs) {
             const d = doc.data() as DocumentData;
             const ts: Timestamp | undefined = d.timestamp;
@@ -126,9 +133,9 @@ export default function HistoryScreen() {
             const lon = Number(d?.location?.lng) || 0;
             const locationCity = lat && lon ? await getCityFromCoords(lat, lon) : 'Unknown Location';
 
-            const submitterName = d.submitter?.displayName || 
-                                  `${d.submitter?.firstName || ''} ${d.submitter?.lastName || ''}`.trim() ||
-                                  'Unknown';
+            const submitterName = d.submitter?.displayName ||
+              `${d.submitter?.firstName || ''} ${d.submitter?.lastName || ''}`.trim() ||
+              'Unknown';
 
             rows.push({
               recordingId: d.recordingId ?? doc.id,
@@ -332,10 +339,19 @@ export default function HistoryScreen() {
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <View>
+        {/* ✅ Back to Home button */}
+        <TouchableOpacity
+          style={styles.menuButton}
+          onPress={() => router.replace('/(tabs)/homeScreen')}
+        >
+          <Ionicons name="arrow-back" size={32} color="#fff" />
+        </TouchableOpacity>
+
+        <View style={{ flex: 1, marginLeft: 12 }}>
           <Text style={styles.headerTitle}>History</Text>
           <View style={styles.titleUnderline} />
         </View>
+
         <TouchableOpacity style={styles.menuButton}>
           <Ionicons name="menu" size={32} color="#fff" />
         </TouchableOpacity>
@@ -373,10 +389,7 @@ export default function HistoryScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#3F5A47',
-  },
+  container: { flex: 1, backgroundColor: '#3F5A47' },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -385,231 +398,71 @@ const styles = StyleSheet.create({
     paddingTop: 60,
     marginBottom: 20,
   },
-  headerTitle: {
-    fontSize: 48,
-    fontWeight: '400',
-    color: '#fff',
-  },
+  headerTitle: { fontSize: 48, fontWeight: '400', color: '#fff' },
   titleUnderline: {
-    width: 160,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: '#d4ff00',
-    marginTop: 4,
+    width: 160, height: 4, borderRadius: 2, backgroundColor: '#d4ff00', marginTop: 4,
   },
   menuButton: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
+    width: 50, height: 50, borderRadius: 25,
     backgroundColor: 'rgba(0, 0, 0, 0.2)',
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: 'center', justifyContent: 'center',
   },
   searchContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: 'row', alignItems: 'center',
     backgroundColor: 'rgba(0, 0, 0, 0.2)',
-    borderWidth: 2,
-    borderColor: '#d4ff00',
-    borderRadius: 25,
-    marginHorizontal: 20,
-    marginBottom: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    borderWidth: 2, borderColor: '#d4ff00',
+    borderRadius: 25, marginHorizontal: 20, marginBottom: 20,
+    paddingHorizontal: 16, paddingVertical: 12,
   },
-  searchIcon: {
-    marginRight: 12,
-  },
-  searchInput: {
-    flex: 1,
-    fontSize: 20,
-    color: '#fff',
-  },
-  listContent: {
-    paddingHorizontal: 20,
-    paddingBottom: 20,
-  },
-  error: {
-    padding: 12,
-    color: '#ffdddd',
-    textAlign: 'center',
-  },
-  emptyText: {
-    padding: 16,
-    textAlign: 'center',
-    color: '#fff',
-    fontSize: 16,
-  },
-  itemContainer: {
-    marginBottom: 16,
-  },
+  searchIcon: { marginRight: 12 },
+  searchInput: { flex: 1, fontSize: 20, color: '#fff' },
+  listContent: { paddingHorizontal: 20, paddingBottom: 20 },
+  error: { padding: 12, color: '#ffdddd', textAlign: 'center' },
+  emptyText: { padding: 16, textAlign: 'center', color: '#fff', fontSize: 16 },
+  itemContainer: { marginBottom: 16 },
   card: {
-    backgroundColor: '#3d4f44',
-    borderRadius: 16,
-    padding: 16,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    backgroundColor: '#3d4f44', borderRadius: 16, padding: 16,
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
   },
-  cardLeft: {
-    flex: 1,
-  },
+  cardLeft: { flex: 1 },
   speciesTag: {
-    backgroundColor: '#d4ff00',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
-    alignSelf: 'flex-start',
-    marginBottom: 8,
+    backgroundColor: '#d4ff00', paddingHorizontal: 12, paddingVertical: 6,
+    borderRadius: 12, alignSelf: 'flex-start', marginBottom: 8,
   },
-  speciesTagText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#2d3e34',
-  },
-  statusIcon: {
-    marginBottom: 8,
-  },
-  locationText: {
-    fontSize: 18,
-    fontWeight: '500',
-    color: '#fff',
-  },
-  cardImage: {
-    width: 100,
-    height: 100,
-    borderRadius: 12,
-  },
-  expandedCard: {
-    backgroundColor: '#2d3e34',
-    borderRadius: 16,
-    padding: 16,
-    marginTop: 8,
-  },
+  speciesTagText: { fontSize: 14, fontWeight: '700', color: '#2d3e34' },
+  statusIcon: { marginBottom: 8 },
+  locationText: { fontSize: 18, fontWeight: '500', color: '#fff' },
+  cardImage: { width: 100, height: 100, borderRadius: 12 },
+  expandedCard: { backgroundColor: '#2d3e34', borderRadius: 16, padding: 16, marginTop: 8 },
   expandedHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16,
   },
-  expandedDate: {
-    fontSize: 18,
-    fontWeight: '500',
-    color: '#fff',
-  },
-  editText: {
-    fontSize: 16,
-    color: '#d4ff00',
-  },
-  dropdownPlaceholder: {
-    backgroundColor: '#3d4f44',
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 12,
-  },
-  dropdownText: {
-    fontSize: 16,
-    color: '#fff',
-  },
-  scoreContainer: {
-    flexDirection: 'row',
-    marginBottom: 12,
-    gap: 12,
-  },
+  expandedDate: { fontSize: 18, fontWeight: '500', color: '#fff' },
+  editText: { fontSize: 16, color: '#d4ff00' },
+  dropdownPlaceholder: { backgroundColor: '#3d4f44', borderRadius: 12, padding: 14, marginBottom: 12 },
+  dropdownText: { fontSize: 16, color: '#fff' },
+  scoreContainer: { flexDirection: 'row', marginBottom: 12, gap: 12 },
   scoreBox: {
-    backgroundColor: '#d4ff00',
-    borderRadius: 12,
-    padding: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    minWidth: 100,
+    backgroundColor: '#d4ff00', borderRadius: 12, padding: 16,
+    alignItems: 'center', justifyContent: 'center', minWidth: 100,
   },
-  scoreLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#2d3e34',
-    marginBottom: 4,
-  },
-  scoreValue: {
-    fontSize: 36,
-    fontWeight: '700',
-    color: '#2d3e34',
-  },
+  scoreLabel: { fontSize: 14, fontWeight: '600', color: '#2d3e34', marginBottom: 4 },
+  scoreValue: { fontSize: 36, fontWeight: '700', color: '#2d3e34' },
   notesBox: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.2)',
-    borderWidth: 2,
-    borderColor: '#d4ff00',
-    borderRadius: 12,
-    padding: 12,
-    justifyContent: 'center',
+    flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.2)',
+    borderWidth: 2, borderColor: '#d4ff00', borderRadius: 12, padding: 12, justifyContent: 'center',
   },
-  notesText: {
-    fontSize: 14,
-    color: '#fff',
-  },
-  editContainer: {
-    marginBottom: 12,
-  },
-  editInput: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 12,
-    fontSize: 16,
-    color: '#333',
-    marginBottom: 12,
-  },
-  notesInput: {
-    height: 80,
-    textAlignVertical: 'top',
-  },
-  waveformPlaceholder: {
-    height: 60,
-    backgroundColor: '#1a252a',
-    borderRadius: 12,
-    marginBottom: 12,
-  },
-  actionButtons: {
-    flexDirection: 'row',
-    gap: 12,
-    marginBottom: 12,
-  },
-  playButton: {
-    flex: 1,
-    backgroundColor: '#3d4f44',
-    borderRadius: 12,
-    paddingVertical: 14,
-    alignItems: 'center',
-  },
-  playButtonText: {
-    fontSize: 16,
-    color: '#fff',
-    fontWeight: '500',
-  },
-  resubmitButton: {
-    flex: 1,
-    backgroundColor: '#3d4f44',
-    borderRadius: 12,
-    paddingVertical: 14,
-    alignItems: 'center',
-  },
-  resubmitButtonText: {
-    fontSize: 16,
-    color: '#fff',
-    fontWeight: '500',
-  },
-  uploaderInfo: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  uploaderName: {
-    fontSize: 16,
-    color: '#fff',
-    fontWeight: '500',
-  },
-  uploadStatus: {
-    fontSize: 14,
-    color: '#aaa',
-  },
+  notesText: { fontSize: 14, color: '#fff' },
+  editContainer: { marginBottom: 12 },
+  editInput: { backgroundColor: '#fff', borderRadius: 12, padding: 12, fontSize: 16, color: '#333', marginBottom: 12 },
+  notesInput: { height: 80, textAlignVertical: 'top' },
+  waveformPlaceholder: { height: 60, backgroundColor: '#1a252a', borderRadius: 12, marginBottom: 12 },
+  actionButtons: { flexDirection: 'row', gap: 12, marginBottom: 12 },
+  playButton: { flex: 1, backgroundColor: '#3d4f44', borderRadius: 12, paddingVertical: 14, alignItems: 'center' },
+  playButtonText: { fontSize: 16, color: '#fff', fontWeight: '500' },
+  resubmitButton: { flex: 1, backgroundColor: '#3d4f44', borderRadius: 12, paddingVertical: 14, alignItems: 'center' },
+  resubmitButtonText: { fontSize: 16, color: '#fff', fontWeight: '500' },
+  uploaderInfo: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  uploaderName: { fontSize: 16, color: '#fff', fontWeight: '500' },
+  uploadStatus: { fontSize: 14, color: '#aaa' },
 });
