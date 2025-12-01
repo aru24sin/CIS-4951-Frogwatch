@@ -1,9 +1,10 @@
 // app/(tabs)/historyScreen.tsx
 import { Ionicons } from '@expo/vector-icons';
+import { Picker } from '@react-native-picker/picker';
 import { Audio } from 'expo-av';
 import { onAuthStateChanged } from 'firebase/auth';
 import {
-  collection, doc, DocumentData, getDoc, onSnapshot, query, Timestamp, where
+  collection, doc, DocumentData, getDoc, onSnapshot, query, Timestamp, updateDoc, where
 } from 'firebase/firestore';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
@@ -48,6 +49,18 @@ const speciesImageMap: Record<string, any> = {
   'Midland Chorus Frog': require('../../assets/frogs/midland_chorus.png')
 };
 const placeholderImage = require('../../assets/frogs/placeholder.png');
+
+// All available species options
+const speciesOptions = [
+  'Bullfrog',
+  'Green Frog',
+  'Northern Spring Peeper',
+  'Northern Leopard Frog',
+  'Eastern Gray Treefrog',
+  'Wood Frog',
+  'American Toad',
+  'Midland Chorus Frog'
+];
 
 function pickDevHost() {
   const url: string | undefined = (NativeModules as any)?.SourceCode?.scriptURL;
@@ -96,6 +109,7 @@ export default function HistoryScreen() {
   const [editConfidence, setEditConfidence] = useState('');
   const [editNotes, setEditNotes] = useState('');
   const [menuVisible, setMenuVisible] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     let offAuth: (() => void) | undefined;
@@ -203,14 +217,62 @@ export default function HistoryScreen() {
       setEditMode(null);
     } else {
       setEditMode(rec.recordingId);
-      setEditSpecies(rec.predictedSpecies);
+      setEditSpecies(rec.species || rec.predictedSpecies);
       setEditConfidence(String(rec.confidence ?? ''));
       setEditNotes(rec.notes ?? '');
     }
   };
 
-  const handleResubmit = () => {
-    Alert.alert('Resubmit', 'Recording resubmitted for review');
+  const handleResubmit = async (recordingId: string) => {
+    // Validate confidence score
+    const confidenceNum = parseInt(editConfidence, 10);
+    if (editConfidence && (isNaN(confidenceNum) || confidenceNum < 0 || confidenceNum > 100)) {
+      Alert.alert('Invalid Confidence', 'Please enter a number between 0 and 100');
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const recordingRef = doc(db, 'recordings', recordingId);
+      
+      const updates: any = {
+        species: editSpecies,
+        predictedSpecies: editSpecies,
+        notes: editNotes,
+        status: 'needs_review', // Reset status for re-review
+      };
+
+      // Only update confidence if a valid number was entered
+      if (editConfidence && !isNaN(confidenceNum)) {
+        updates.confidenceScore = confidenceNum / 100; // Store as decimal
+      }
+
+      await updateDoc(recordingRef, updates);
+
+      // Update local state
+      setRecordings(prevRecordings =>
+        prevRecordings.map(rec =>
+          rec.recordingId === recordingId
+            ? {
+                ...rec,
+                species: editSpecies,
+                predictedSpecies: editSpecies,
+                notes: editNotes,
+                confidence: confidenceNum || rec.confidence,
+                status: 'needs_review',
+              }
+            : rec
+        )
+      );
+
+      setEditMode(null);
+      Alert.alert('Success', 'Recording updated and resubmitted for review');
+    } catch (error) {
+      console.error('Error updating recording:', error);
+      Alert.alert('Error', 'Failed to update recording. Please try again.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const filteredRecordings = useMemo(() => {
@@ -255,36 +317,55 @@ export default function HistoryScreen() {
             <View style={styles.expandedHeader}>
               <Text style={styles.expandedDate}>{item.timestampISO}</Text>
               <TouchableOpacity onPress={() => handleEdit(item)}>
-                <Text style={styles.editText}>edit</Text>
+                <Text style={styles.editText}>{isEditing ? 'cancel' : 'edit'}</Text>
               </TouchableOpacity>
             </View>
 
             {isEditing ? (
               <View style={styles.editContainer}>
-                <View style={styles.dropdownPlaceholder}>
-                  <Text style={styles.dropdownText}>Species name ▼</Text>
+                {/* Species Dropdown */}
+                <View style={styles.pickerContainer}>
+                  <Picker
+                    selectedValue={editSpecies}
+                    onValueChange={(value) => setEditSpecies(value)}
+                    style={styles.picker}
+                    dropdownIconColor="#d4ff00"
+                  >
+                    {speciesOptions.map((species) => (
+                      <Picker.Item
+                        key={species}
+                        label={species}
+                        value={species}
+                        color="#000"
+                      />
+                    ))}
+                  </Picker>
                 </View>
                 <TextInput
                   style={styles.editInput}
                   value={editConfidence}
                   onChangeText={setEditConfidence}
-                  placeholder="Confidence Score"
+                  placeholder="Confidence Score (0-100)"
                   placeholderTextColor="#999"
                   keyboardType="number-pad"
+                  maxLength={3}
                 />
                 <TextInput
                   style={[styles.editInput, styles.notesInput]}
                   value={editNotes}
                   onChangeText={setEditNotes}
-                  placeholder="Notes made by volunteer or expert"
+                  placeholder="Add notes..."
                   placeholderTextColor="#999"
                   multiline
                 />
               </View>
             ) : (
               <>
-                <View style={styles.dropdownPlaceholder}>
-                  <Text style={styles.dropdownText}>Species name ▼</Text>
+                {/* Species Display */}
+                <View style={styles.speciesDisplayBox}>
+                  <Text style={styles.speciesDisplayText}>
+                    {item.species || item.predictedSpecies || 'Unknown Species'}
+                  </Text>
                 </View>
                 <View style={styles.scoreContainer}>
                   <View style={styles.scoreBox}>
@@ -293,12 +374,15 @@ export default function HistoryScreen() {
                   </View>
                   <View style={styles.notesBox}>
                     <Text style={styles.notesText}>
-                      {item.notes || 'Notes made by volunteer or expert'}
+                      {item.notes || 'No notes added'}
                     </Text>
                   </View>
                 </View>
               </>
             )}
+
+            {/* Waveform placeholder */}
+            <View style={styles.waveformPlaceholder} />
 
             <View style={styles.actionButtons}>
               <TouchableOpacity
@@ -307,14 +391,33 @@ export default function HistoryScreen() {
               >
                 <Text style={styles.playButtonText}>play</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.resubmitButton} onPress={handleResubmit}>
-                <Text style={styles.resubmitButtonText}>resubmit</Text>
-              </TouchableOpacity>
+              {isEditing ? (
+                <TouchableOpacity
+                  style={[styles.resubmitButton, isSaving && styles.buttonDisabled]}
+                  onPress={() => handleResubmit(item.recordingId)}
+                  disabled={isSaving}
+                >
+                  <Text style={styles.resubmitButtonText}>
+                    {isSaving ? 'saving...' : 'save & resubmit'}
+                  </Text>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  style={styles.resubmitButton}
+                  onPress={() => handleEdit(item)}
+                >
+                  <Text style={styles.resubmitButtonText}>edit to resubmit</Text>
+                </TouchableOpacity>
+              )}
             </View>
 
             <View style={styles.uploaderInfo}>
               <Text style={styles.uploaderName}>{item.submitterName}</Text>
-              <Text style={styles.uploadStatus}>Uploading...</Text>
+              <Text style={styles.uploadStatus}>
+                {item.status === 'approved' ? 'Approved' : 
+                 item.status === 'needs_review' ? 'Pending Review' : 
+                 item.status}
+              </Text>
             </View>
           </View>
         )}
@@ -513,6 +616,32 @@ const styles = StyleSheet.create({
   dropdownText: {
     fontSize: 16,
     color: '#fff',
+  },
+  pickerContainer: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    marginBottom: 12,
+    overflow: 'hidden',
+  },
+  picker: {
+    width: '100%',
+    color: '#333',
+  },
+  speciesDisplayBox: {
+    backgroundColor: '#3d4f44',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 12,
+    borderWidth: 2,
+    borderColor: '#d4ff00',
+  },
+  speciesDisplayText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#d4ff00',
+  },
+  buttonDisabled: {
+    opacity: 0.6,
   },
   scoreContainer: {
     flexDirection: 'row',
