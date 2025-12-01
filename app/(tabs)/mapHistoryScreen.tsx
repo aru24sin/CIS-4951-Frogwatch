@@ -501,7 +501,7 @@ export default function MapHistoryScreen() {
             onPress={() => handleMarkerPress(rec)}
           >
             <View style={styles.customMarker}>
-              <Ionicons name="location" size={40} color="#2d5a3d" />
+              <Ionicons name="location" size={40} color="#ccff01ff" />
             </View>
           </Marker>
         ))}
