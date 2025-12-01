@@ -17,13 +17,12 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import NavigationMenu from '../../components/NavigationMenu';
 
 // Firebase
 import { signInWithEmailAndPassword } from 'firebase/auth';
 import { collection, doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
 import app, { auth, db } from '../firebaseConfig';
-
-// (Removed Firebase Storage SDK import to avoid Blob path)
 
 type TopItem = { species: string; confidence: number };
 
@@ -38,6 +37,7 @@ const speciesImageMap: Record<string, any> = {
   'American Toad': require('../../assets/frogs_background/american_toad.jpg'),
   'Midland Chorus Frog': require('../../assets/frogs_background/midland_chorus_frog.jpg'),
 };
+const placeholderImage = require('../../assets/frogs/placeholder.png');
 
 /* ---------------- dynamic API base (dev) ---------------- */
 const DEV_HOST_OVERRIDE = '';
@@ -61,11 +61,7 @@ function pickDevHost() {
   return m?.[1] ?? 'localhost';
 }
 
-//export const API_BASE = __DEV__ ? `http://${pickDevHost()}:8000` : 'https://your-production-domain';
-export const API_BASE =
-  process.env.EXPO_PUBLIC_API_BASE_URL ??
-  'https://frogwatch-backend-1066546787031.us-central1.run.app';
-
+export const API_BASE = __DEV__ ? `http://${pickDevHost()}:8000` : 'https://your-production-domain';
 
 /* ---------------- helpers ---------------- */
 function guessMime(uri: string): string {
@@ -122,6 +118,23 @@ async function getCityFromCoords(lat: number, lon: number): Promise<string> {
   }
 }
 
+// Helper function to get the correct home screen based on user role
+async function getHomeScreen(): Promise<string> {
+  try {
+    const user = auth.currentUser;
+    if (!user) return './volunteerHomeScreen';
+    
+    const userDoc = await getDoc(doc(db, 'users', user.uid));
+    const userData = userDoc.data() || {};
+    
+    if (userData.isAdmin) return './adminHomeScreen';
+    if (userData.isExpert) return './expertHomeScreen';
+    return './volunteerHomeScreen';
+  } catch {
+    return './volunteerHomeScreen';
+  }
+}
+
 /* ---------------- component ---------------- */
 export default function PredictionScreen() {
   const params = useLocalSearchParams<{ audioUri?: string; lat?: string; lon?: string }>();
@@ -141,17 +154,14 @@ export default function PredictionScreen() {
   const [submitAsExpert, setSubmitAsExpert] = useState(false);
   const [showEditOptions, setShowEditOptions] = useState(false);
   const [locationCity, setLocationCity] = useState('Loading location...');
+  const [homeScreen, setHomeScreen] = useState<string>('./volunteerHomeScreen');
+  const [menuVisible, setMenuVisible] = useState(false);
   const mountedRef = useRef(true);
 
-  // === NEW: derive expert/admin and ensure volunteer cannot keep the toggle ===
-  const isExpertUser = useMemo(() => {
-    const r = (role || '').toLowerCase();
-    return r === 'expert' || r === 'admin';
-  }, [role]);
-
+  // Determine the correct home screen on mount
   useEffect(() => {
-    if (!isExpertUser && submitAsExpert) setSubmitAsExpert(false);
-  }, [isExpertUser, submitAsExpert]);
+    getHomeScreen().then(setHomeScreen);
+  }, []);
 
   useEffect(() => {
     console.log('[predict] API_BASE =', API_BASE);
@@ -250,7 +260,6 @@ export default function PredictionScreen() {
     }
   };
 
-  // 🔄 Submit: upload via REST (no Blob), then write /submissions doc (+ expert auto-approve -> /recordings)
   const handleSubmit = async () => {
     const score = parseInt(confidenceInput, 10);
     if (Number.isNaN(score) || score < 0 || score > 100) {
@@ -266,10 +275,9 @@ export default function PredictionScreen() {
       setLoading(true);
 
       await ensureSignedIn();
-      // refresh token/claims just in case role changed
-      await auth.currentUser?.getIdToken(true);
-
       const user = auth.currentUser!;
+      const idToken = await user.getIdToken();
+
       const profile = await getUserProfile(user.uid);
       const firstName = profile?.firstName ?? '';
       const lastName = profile?.lastName ?? '';
@@ -282,50 +290,37 @@ export default function PredictionScreen() {
         Alert.alert('Audio missing', 'The recorded file is no longer available. Please re-record.');
         return;
       }
-
       const contentType = guessMime(audioUri);
       const ext =
         contentType === 'audio/wav' ? '.wav' :
         contentType === 'audio/m4a' ? '.m4a' :
         '.mp3';
 
-      // Storage path for submission
-      const fileId = makeUniqueFileName(ext);
-      const uid = user.uid;
-      const storagePath = `submissions/${uid}/${fileId}`;
+      const fileName = makeUniqueFileName(ext);
+      const filePath = `uploaded_audios/${fileName}`;
 
-      // ✅ Upload raw bytes via REST (simple media upload)
-      const idToken = await user.getIdToken();
-      const bucket = (app.options as any).storageBucket as string;
+      const bucket = (app.options as any).storageBucket as string | undefined;
       if (!bucket) throw new Error('Missing Firebase storage bucket in config.');
+      const uploadUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o?name=${encodeURIComponent(filePath)}`;
 
-      const uploadUrl =
-        `https://firebasestorage.googleapis.com/v0/b/${bucket}/o?uploadType=media&name=${encodeURIComponent(storagePath)}`;
-
-      const uploadRes = await FileSystem.uploadAsync(uploadUrl, audioUri, {
+      const result = await FileSystem.uploadAsync(uploadUrl, audioUri, {
         httpMethod: 'POST',
         headers: {
           'Content-Type': contentType,
-          'Authorization': `Bearer ${idToken}`,
-          // Optional metadata
-          'x-goog-meta-predictedSpecies': predictedSpecies || '',
-          'x-goog-meta-confidencePct': String(score),
-          'x-goog-meta-client': 'frogwatch-ui',
-          'x-goog-meta-lat': Number.isFinite(lat) ? String(lat) : '',
-          'x-goog-meta-lon': Number.isFinite(lon) ? String(lon) : '',
-          'x-goog-meta-submitterUid': uid,
+          Authorization: `Bearer ${idToken}`,
         },
-        uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
       });
 
-      if (uploadRes.status < 200 || uploadRes.status >= 300) {
-        throw new Error(`Storage upload failed (${uploadRes.status}): ${uploadRes.body?.slice?.(0, 200)}`);
+      if (result.status < 200 || result.status >= 300) {
+        console.log('Storage upload failed:', result.status, result.body?.slice?.(0, 400));
+        throw new Error(`Storage upload failed (${result.status})`);
       }
 
-      // Firestore doc in /submissions (review queue)
-      const docRef = doc(collection(db, 'submissions'));
-      const submissionId = docRef.id;
+      const recRef = doc(collection(db, 'recordings'));
+      const recordingId = recRef.id;
+
       const nowIso = new Date().toISOString();
+      const audioURL = `/get-audio/${fileName}`;
 
       const aiBlock = {
         species: predictedSpecies || '',
@@ -336,71 +331,56 @@ export default function PredictionScreen() {
         })),
       };
 
-      // compute final status (volunteers always 'pending')
-      const status = submitAsExpert && isExpertUser ? 'approved' : 'pending';
-
-      await setDoc(docRef, {
-        submissionId,
-        ownerUid: uid,
-        storagePath,     // e.g., submissions/{uid}/{fileId}
-        contentType,
+      const baseDoc = {
+        recordingId,
+        createdBy: user.uid,
+        userId: user.uid,
         predictedSpecies: predictedSpecies || '',
+        species: '',
         confidenceScore: score / 100,
         top3,
         ai: aiBlock,
+        fileName,
+        filePath,
+        contentType,
+        audioURL,
         notes: notes || '',
         location: {
           lat: Number.isFinite(lat) ? lat : 0,
           lng: Number.isFinite(lon) ? lon : 0,
-          display: locationCity || '',
         },
-        status,          // 'pending' (volunteers) or 'approved' (experts skipping review)
-        createdAt: serverTimestamp(),
-        createdAt_iso: nowIso,
+        history: [{ action: 'submitted', actorId: user.uid, timestamp: nowIso }],
+        timestamp: serverTimestamp(),
+        timestamp_iso: nowIso,
         submitter: {
-          uid,
+          uid: user.uid,
           displayName,
           firstName,
           lastName,
           email: userEmail,
-          role: role ?? 'volunteer',
         },
-        history: [
-          {
-            action: submitAsExpert && isExpertUser ? 'submitted_approved' : 'submitted',
-            actorId: uid,
-            timestamp_iso: nowIso,
-          },
-        ],
-      });
+      };
 
-      // ✅ Expert auto-approve path: create curated /recordings entry too
-      if (isExpertUser && submitAsExpert && status === 'approved') {
-        const recRef = doc(collection(db, 'recordings'));
+      const isExpert = role === 'expert' || role === 'admin';
+
+      if (submitAsExpert && isExpert) {
         await setDoc(recRef, {
-          userId: uid,
-          predictedSpecies: predictedSpecies || '',
-          confidence: score / 100,
-          ai: aiBlock,
-          notes: notes || '',
-          location: {
-            lat: Number.isFinite(lat) ? lat : 0,
-            lng: Number.isFinite(lon) ? lon : 0,
-            display: locationCity || '',
-          },
+          ...baseDoc,
           status: 'approved',
-          timestamp: serverTimestamp(),
-          timestamp_iso: nowIso,
-          sourceSubmission: submissionId,
-          storagePath,
-          contentType,
+          expertReview: {
+            species: predictedSpecies || '',
+            confidence: score / 100,
+            reviewer: { uid: user.uid, firstName, lastName },
+            reviewedAt: serverTimestamp(),
+          },
         });
-      }
-
-      if (submitAsExpert && isExpertUser) {
-        Alert.alert('Submitted', 'Saved and marked approved (expert submission).');
+        Alert.alert('Submitted', 'Your recording was saved and approved as an expert submission.');
       } else {
-        Alert.alert('Submitted', 'Your recording was saved for expert review.');
+        await setDoc(recRef, {
+          ...baseDoc,
+          status: 'needs_review',
+        });
+        Alert.alert('Submitted', 'Your recording was saved');
       }
     } catch (err: any) {
       console.log('Submit failed details:', { name: err?.name, code: err?.code, message: err?.message });
@@ -412,6 +392,7 @@ export default function PredictionScreen() {
 
   return (
     <View style={styles.container}>
+      <NavigationMenu isVisible={menuVisible} onClose={() => setMenuVisible(false)} />
       {backgroundSource ? (
         <ImageBackground
           source={backgroundSource}
@@ -424,18 +405,18 @@ export default function PredictionScreen() {
         <View style={[styles.background, styles.solidBackground]} />
       )}
 
-      <ScrollView
+      <ScrollView 
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
         {/* Header */}
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.iconButton}>
+          <TouchableOpacity onPress={() => router.push(homeScreen as any)} style={styles.iconButton}>
             <Ionicons name="arrow-back" size={28} color="#333" />
           </TouchableOpacity>
 
-          <TouchableOpacity onPress={() => Alert.alert('Menu pressed')} style={styles.iconButton}>
+          <TouchableOpacity onPress={() => setMenuVisible(true)} style={styles.iconButton}>
             <Ionicons name="menu" size={28} color="#333" />
           </TouchableOpacity>
         </View>
@@ -511,14 +492,14 @@ export default function PredictionScreen() {
           </TouchableOpacity>
 
           {/* Edit Button */}
-          <TouchableOpacity
+          <TouchableOpacity 
             style={[styles.cardButton, styles.editButton]}
             onPress={() => setShowEditOptions(!showEditOptions)}
           >
             <Text style={styles.editButtonText}>edit</Text>
           </TouchableOpacity>
 
-          {/* Edit Options Card */}
+          {/* Edit Options Card (conditionally shown below edit button) */}
           {showEditOptions && (
             <View style={styles.editOptionsCard}>
               {/* Species Picker */}
@@ -557,7 +538,7 @@ export default function PredictionScreen() {
           )}
 
           {/* Submit Button */}
-          <TouchableOpacity
+          <TouchableOpacity 
             style={[styles.cardButton, styles.submitButton]}
             onPress={handleSubmit}
           >
@@ -565,8 +546,8 @@ export default function PredictionScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Expert Options — shown ONLY for expert/admin */}
-        {isExpertUser && (
+        {/* Expert Options */}
+        {(role === 'expert' || role === 'admin') && (
           <View style={styles.expertBox}>
             <Text style={styles.expertTitle}>Expert Options</Text>
             <TouchableOpacity onPress={() => setSubmitAsExpert(v => !v)} style={styles.expertCheckbox}>

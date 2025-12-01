@@ -7,7 +7,7 @@ import { onAuthStateChanged } from 'firebase/auth';
 import {
   collection,
   doc,
-  DocumentData, onSnapshot, query, Timestamp,
+  DocumentData, getDoc, onSnapshot, query, Timestamp,
   updateDoc,
   where
 } from 'firebase/firestore';
@@ -26,6 +26,7 @@ import {
   View,
 } from 'react-native';
 import MapView, { Marker } from 'react-native-maps';
+import NavigationMenu from '../../components/NavigationMenu';
 import app, { auth, db } from '../firebaseConfig';
 
 type Recording = {
@@ -73,11 +74,7 @@ function pickDevHost() {
   const m = scriptURL?.match(/\/\/([^/:]+):\d+/);
   return m?.[1] ?? 'localhost';
 }
-//const API_BASE = __DEV__ ? `http://${pickDevHost()}:8000` : 'https://your-production-domain';
-const API_BASE =
-  process.env.EXPO_PUBLIC_API_BASE_URL ??
-  'https://frogwatch-backend-1066546787031.us-central1.run.app';
-
+const API_BASE = __DEV__ ? `http://${pickDevHost()}:8000` : 'https://your-production-domain';
 
 function resolveAudioURL(d: any): string | undefined {
   const filePath = d?.filePath || (d?.fileName ? `uploaded_audios/${d.fileName}` : undefined);
@@ -107,6 +104,23 @@ async function getCityFromCoords(lat: number, lon: number): Promise<string> {
   }
 }
 
+// Helper function to get the correct home screen based on user role
+const getHomeScreen = async (): Promise<string> => {
+  try {
+    const user = auth.currentUser;
+    if (!user) return './volunteerHomeScreen';
+    
+    const userDoc = await getDoc(doc(db, 'users', user.uid));
+    const userData = userDoc.data() || {};
+    
+    if (userData.isAdmin) return './adminHomeScreen';
+    if (userData.isExpert) return './expertHomeScreen';
+    return './volunteerHomeScreen';
+  } catch {
+    return './volunteerHomeScreen';
+  }
+};
+
 export default function MapHistoryScreen() {
   const router = useRouter();
   const [recordings, setRecordings] = useState<Recording[]>([]);
@@ -120,6 +134,8 @@ export default function MapHistoryScreen() {
   const [editNotes, setEditNotes] = useState('');
   const [showSpeciesDropdown, setShowSpeciesDropdown] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [homeScreen, setHomeScreen] = useState<string>('./volunteerHomeScreen');
+  const [menuVisible, setMenuVisible] = useState(false);
   
   // Date filter state
   const [startDate, setStartDate] = useState<Date | null>(null);
@@ -136,6 +152,11 @@ export default function MapHistoryScreen() {
   const [showSpeciesPicker, setShowSpeciesPicker] = useState(false);
   
   const mapRef = useRef<MapView>(null);
+
+  // Determine the correct home screen on mount
+  useEffect(() => {
+    getHomeScreen().then(setHomeScreen);
+  }, []);
 
   const initialRegion = useMemo(() => {
     const first = recordings[0];
@@ -453,15 +474,16 @@ export default function MapHistoryScreen() {
 
   return (
     <View style={styles.container}>
+      <NavigationMenu isVisible={menuVisible} onClose={() => setMenuVisible(false)} />
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+        <TouchableOpacity onPress={() => router.push(homeScreen as any)} style={styles.backButton}>
           <Ionicons name="arrow-back" size={28} color="#333" />
         </TouchableOpacity>
 
         <Text style={styles.headerTitle}>Map</Text>
 
-        <TouchableOpacity onPress={() => Alert.alert('Menu pressed')} style={styles.menuButton}>
+        <TouchableOpacity onPress={() => setMenuVisible(true)} style={styles.menuButton}>
           <Ionicons name="menu" size={28} color="#333" />
         </TouchableOpacity>
       </View>

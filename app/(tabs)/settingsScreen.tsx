@@ -5,16 +5,17 @@ import { onAuthStateChanged, signOut, updatePassword } from 'firebase/auth';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
-  Alert,
-  ScrollView,
-  StyleSheet,
-  Switch,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Alert,
+    ScrollView,
+    StyleSheet,
+    Switch,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from 'react-native';
+import NavigationMenu from '../../components/NavigationMenu';
 import { auth, db } from '../firebaseConfig';
 
 type UserData = {
@@ -60,10 +61,29 @@ type UserSettings = {
   };
 };
 
+// Helper function to get the correct home screen based on user role
+const getHomeScreen = async (): Promise<string> => {
+  try {
+    const user = auth.currentUser;
+    if (!user) return './volunteerHomeScreen';
+    
+    const userDoc = await getDoc(doc(db, 'users', user.uid));
+    const userData = userDoc.data() || {};
+    
+    if (userData.isAdmin) return './adminHomeScreen';
+    if (userData.isExpert) return './expertHomeScreen';
+    return './volunteerHomeScreen';
+  } catch {
+    return './volunteerHomeScreen';
+  }
+};
+
 export default function SettingsScreen() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [userData, setUserData] = useState<UserData | null>(null);
+  const [homeScreen, setHomeScreen] = useState<string>('./volunteerHomeScreen');
+  const [menuVisible, setMenuVisible] = useState(false);
   const [settings, setSettings] = useState<UserSettings>({
     notifications: {
       pushEnabled: true,
@@ -108,6 +128,11 @@ export default function SettingsScreen() {
   const [editBio, setEditBio] = useState('');
   const [editLocation, setEditLocation] = useState('');
   const [editDOB, setEditDOB] = useState('');
+
+  // Determine the correct home screen on mount
+  useEffect(() => {
+    getHomeScreen().then(setHomeScreen);
+  }, []);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -310,18 +335,19 @@ export default function SettingsScreen() {
 
   return (
     <View style={styles.container}>
+      <NavigationMenu isVisible={menuVisible} onClose={() => setMenuVisible(false)} />
       {/* Header */}
       <View style={styles.header}>
-      <TouchableOpacity onPress={() => router.push('./homeScreen')} style={styles.iconButton}>
-                   <Ionicons name="arrow-back" size={28} color="#fff" />
-                 </TouchableOpacity>
+        <TouchableOpacity onPress={() => router.push(homeScreen as any)} style={styles.backButton}>
+          <Ionicons name="arrow-back" size={28} color="#2d3e34" />
+        </TouchableOpacity>
 
         <View>
           <Text style={styles.headerTitle}>Settings</Text>
           <View style={styles.underline} />
         </View>
 
-        <TouchableOpacity onPress={() => Alert.alert('Menu pressed')} style={styles.menuButton}>
+        <TouchableOpacity onPress={() => setMenuVisible(true)} style={styles.menuButton}>
           <Ionicons name="menu" size={28} color="#2d3e34" />
         </TouchableOpacity>
       </View>
@@ -1130,14 +1156,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-  },
-  iconButton: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: 'rgba(0, 0, 0, 0.2)',
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   backButton: {
     width: 50,

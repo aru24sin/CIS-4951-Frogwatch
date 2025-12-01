@@ -1,75 +1,33 @@
-import { Ionicons } from '@expo/vector-icons';
-import { Link, useRouter } from 'expo-router';
-import { collection, limit, onSnapshot, orderBy, query, Timestamp, where } from 'firebase/firestore';
+// app/(tabs)/expert/review-queue.tsx
+import { Link } from 'expo-router';
+import { collection, limit, onSnapshot, orderBy, query, where } from 'firebase/firestore';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, FlatList, Pressable, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, FlatList, Pressable, Text, View } from 'react-native';
 import { db } from '../../firebaseConfig';
 
-type Sub = {
+type Rec = {
   id: string;
+  ai?: { species?: string; confidence?: number };
   predictedSpecies?: string;
-  confidenceScore?: number; // 0..1
   status: string;
-  createdAt?: Timestamp | Date | { seconds: number; nanoseconds: number } | string;
-  submitter?: {
-    displayName?: string;
-    firstName?: string;
-    lastName?: string;
-    email?: string;
-    uid?: string;
-  };
-  location?: {
-    display?: string;
-    lat?: number;
-    lng?: number;
-  };
+  timestamp?: any;
 };
 
-function formatName(s?: Sub['submitter']) {
-  if (!s) return 'Unknown user';
-  if (s.displayName && s.displayName.trim()) return s.displayName.trim();
-  const full = [s.firstName, s.lastName].filter(Boolean).join(' ').trim();
-  if (full) return full;
-  return s.email || s.uid || 'Unknown user';
-}
-
-function formatDate(d: Sub['createdAt']) {
-  try {
-    let jsDate: Date | null = null;
-    if (!d) return '—';
-    if (typeof d === 'string') jsDate = new Date(d);
-    // @ts-ignore
-    else if (d && typeof d.toDate === 'function') jsDate = (d as Timestamp).toDate();
-    // @ts-ignore
-    else if (typeof d.seconds === 'number') jsDate = new Date((d.seconds as number) * 1000);
-    else if (d instanceof Date) jsDate = d;
-    if (!jsDate || isNaN(jsDate.getTime())) return '—';
-    return jsDate.toLocaleString();
-  } catch {
-    return '—';
-  }
-}
-
-function formatCoords(loc?: Sub['location']) {
-  if (!loc) return '—';
-  const { lat, lng } = loc;
-  if (typeof lat === 'number' && typeof lng === 'number') {
-    return `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
-  }
-  return '—';
-}
-
 export default function ReviewQueue() {
-  const router = useRouter();
-  const [items, setItems] = useState<Sub[]>([]);
+  const [items, setItems] = useState<Rec[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const ref = collection(db, 'submissions');
-    const q = query(ref, where('status', '==', 'pending'), orderBy('createdAt', 'desc'), limit(50));
+    const ref = collection(db, 'recordings');
+    const q = query(
+      ref,
+      where('status', '==', 'needs_review'),
+      orderBy('timestamp', 'desc'),
+      limit(50)
+    );
 
     const unsub = onSnapshot(q, (snap) => {
-      const rows: Sub[] = [];
+      const rows: Rec[] = [];
       snap.forEach((d) => rows.push({ id: d.id, ...(d.data() as any) }));
       setItems(rows);
       setLoading(false);
@@ -79,63 +37,32 @@ export default function ReviewQueue() {
   }, []);
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#2d3e34', padding: 16, paddingTop: 64 }}>
-      {/* Back button */}
-      <TouchableOpacity
-        onPress={() => router.replace('/(tabs)/expert')}
-        style={{
-          width: 44, height: 44, borderRadius: 22,
-          alignItems: 'center', justifyContent: 'center',
-          backgroundColor: 'rgba(0,0,0,0.2)', marginBottom: 12,
-        }}
-      >
-        <Ionicons name="arrow-back" size={24} color="#fff" />
-      </TouchableOpacity>
-
-      {/* Header */}
-      <Text style={{ fontSize: 24, fontWeight: '700', color: '#d4ff00', marginBottom: 16 }}>
-        Review Queue (PENDING)
-      </Text>
-
-      {loading && <ActivityIndicator color="#d4ff00" />}
+    <View style={{ flex: 1, padding: 16 }}>
+      <Text style={{ fontSize: 20, fontWeight: '700', marginBottom: 12 }}>Review Queue</Text>
+      {loading && <ActivityIndicator />}
 
       <FlatList
         data={items}
         keyExtractor={(item) => item.id}
         ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
         renderItem={({ item }) => {
-          const name = formatName(item.submitter);
-          const dateStr = formatDate(item.createdAt);
-          const coords = formatCoords(item.location);
-          const place = item.location?.display || 'Unknown location';
-          const confPct =
-            typeof item.confidenceScore === 'number'
-              ? Math.round(Math.max(0, Math.min(1, item.confidenceScore)) * 100)
-              : '—';
-          const species = item.predictedSpecies || '—';
+          const aiName = item.ai?.species || item.predictedSpecies || '—';
+          const aiConf = item.ai?.confidence != null
+            ? Math.round(Math.max(0, Math.min(1, item.ai.confidence)) * 100)
+            : '—';
 
           return (
-            <Link href={{ pathname: '/(tabs)/expert/submission/[id]', params: { id: item.id } }} asChild>
-              <Pressable
-                style={{
-                  padding: 12,
-                  borderRadius: 12,
-                  backgroundColor: '#d4ff00',
-                  borderWidth: 1,
-                  borderColor: '#d4ff00',
-                }}
-              >
-                <Text style={{ fontWeight: '700', color: '#2d3e34' }}>{name}</Text>
-                <Text style={{ opacity: 0.9, color: '#2d3e34' }}>{species} • {confPct}%</Text>
-                <Text style={{ opacity: 0.8, color: '#2d3e34' }}>{place}</Text>
-                <Text style={{ opacity: 0.8, color: '#2d3e34' }}>Coords: {coords}</Text>
-                <Text style={{ opacity: 0.7, marginTop: 4, color: '#2d3e34' }}>Submitted: {dateStr}</Text>
+            <Link href={{ pathname: './submission/[id]', params: { id: item.id } }} asChild>
+              <Pressable style={{ padding: 12, borderRadius: 12, borderWidth: 1 }}>
+                <Text style={{ fontWeight: '600' }}>{aiName}</Text>
+                <Text style={{ opacity: 0.8 }}>AI confidence: {aiConf}%</Text>
+                <Text style={{ opacity: 0.6, marginTop: 4 }}>ID: {item.id}</Text>
               </Pressable>
             </Link>
           );
         }}
         ListEmptyComponent={
-          !loading ? <Text style={{ opacity: 0.7, color: '#fff', marginTop: 20 }}>No submissions waiting for review.</Text> : null
+          !loading ? <Text style={{ opacity: 0.7 }}>No submissions waiting for review.</Text> : null
         }
       />
     </View>

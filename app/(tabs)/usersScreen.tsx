@@ -25,6 +25,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import NavigationMenu from '../../components/NavigationMenu';
 import { auth, db } from '../firebaseConfig';
 
 type User = {
@@ -68,75 +69,22 @@ const avatarColors = [
   '#F7DC6F', '#BB8FCE', '#85C1E2', '#F8B88B', '#AED6F1'
 ];
 
-// Fake data for demonstration
-const FAKE_USERS: User[] = [
-  {
-    userId: 'user1',
-    firstName: 'Robert',
-    lastName: 'Lee',
-    username: 'rlee',
-    email: 'robert.lee@example.com',
-    location: 'Dearborn, MI',
-    isExpert: true,
-    isPendingExpert: false,
-    submissionCount: 2,
-    avatarColor: '#FF6B6B',
-    recordings: [
-      {
-        recordingId: 'rec1',
-        predictedSpecies: 'Bullfrog',
-        location: { latitude: 42.3223, longitude: -83.1763 },
-        locationCity: 'Dearborn, MI',
-        status: 'verified',
-        timestampISO: '2024-03-15',
-      },
-      {
-        recordingId: 'rec2',
-        predictedSpecies: 'Green Frog',
-        location: { latitude: 42.3314, longitude: -83.0458 },
-        locationCity: 'Detroit, MI',
-        status: 'verified',
-        timestampISO: '2024-03-18',
-      },
-    ],
-  },
-  {
-    userId: 'user2',
-    firstName: 'Hellen',
-    lastName: 'K.',
-    username: 'hellenk',
-    email: 'hellen.k@example.com',
-    location: 'Dearborn, MI',
-    isExpert: false,
-    isPendingExpert: true,
-    submissionCount: 0,
-    avatarColor: '#4ECDC4',
-  },
-  {
-    userId: 'user3',
-    firstName: 'Sarah',
-    lastName: 'Johnson',
-    username: 'sjohnson',
-    email: 'sarah.j@example.com',
-    location: 'Ann Arbor, MI',
-    isExpert: false,
-    isPendingExpert: false,
-    submissionCount: 5,
-    avatarColor: '#45B7D1',
-  },
-  {
-    userId: 'user4',
-    firstName: 'Michael',
-    lastName: 'Chen',
-    username: 'mchen',
-    email: 'michael.chen@example.com',
-    location: 'Detroit, MI',
-    isExpert: true,
-    isPendingExpert: false,
-    submissionCount: 8,
-    avatarColor: '#FFA07A',
-  },
-];
+// Helper function to get the correct home screen based on user role
+const getHomeScreen = async (): Promise<string> => {
+  try {
+    const user = auth.currentUser;
+    if (!user) return './adminHomeScreen'; // UsersScreen is admin-only, so default to admin
+    
+    const userDoc = await getDoc(doc(db, 'users', user.uid));
+    const userData = userDoc.data() || {};
+    
+    if (userData.isAdmin) return './adminHomeScreen';
+    if (userData.isExpert) return './expertHomeScreen';
+    return './volunteerHomeScreen';
+  } catch {
+    return './adminHomeScreen';
+  }
+};
 
 export default function UsersScreen() {
   const router = useRouter();
@@ -147,19 +95,18 @@ export default function UsersScreen() {
   const [expandedUserId, setExpandedUserId] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [showFilterModal, setShowFilterModal] = useState(false);
-  const [useFakeData, setUseFakeData] = useState(true); // Toggle for demo
+  const [homeScreen, setHomeScreen] = useState<string>('./adminHomeScreen');
+  const [menuVisible, setMenuVisible] = useState(false);
+
+  // Determine the correct home screen on mount
+  useEffect(() => {
+    getHomeScreen().then(setHomeScreen);
+  }, []);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (!user) {
         setLoading(false);
-        // Use fake data for demo instead of redirecting
-        if (useFakeData) {
-          setUsers(FAKE_USERS);
-          setIsAdmin(true);
-          setLoading(false);
-          return;
-        }
         router.push('/');
         return;
       }
@@ -173,7 +120,12 @@ export default function UsersScreen() {
           
           if (!userData.isAdmin) {
             Alert.alert('Access Denied', 'You do not have admin privileges');
-            router.back();
+            // Navigate to appropriate home screen
+            if (userData.isExpert) {
+              router.push('./expertHomeScreen');
+            } else {
+              router.push('./volunteerHomeScreen');
+            }
             return;
           }
         }
@@ -187,15 +139,8 @@ export default function UsersScreen() {
       }
     });
 
-    // Load fake data immediately for demo
-    if (useFakeData) {
-      setUsers(FAKE_USERS);
-      setIsAdmin(true);
-      setLoading(false);
-    }
-
     return () => unsubscribe();
-  }, [useFakeData]);
+  }, []);
 
   const loadUsers = async () => {
     try {
@@ -236,11 +181,6 @@ export default function UsersScreen() {
   };
 
   const loadUserRecordings = async (userId: string) => {
-    // If using fake data, recordings are already loaded
-    if (useFakeData) {
-      return;
-    }
-
     try {
       const recordingsQuery = query(
         collection(db, 'recordings'),
@@ -299,12 +239,10 @@ export default function UsersScreen() {
           style: action === 'remove' ? 'destructive' : 'default',
           onPress: async () => {
             try {
-              if (!useFakeData) {
-                await updateDoc(doc(db, 'users', userId), {
-                  isExpert: !currentStatus,
-                  isPendingExpert: false,
-                });
-              }
+              await updateDoc(doc(db, 'users', userId), {
+                isExpert: !currentStatus,
+                isPendingExpert: false,
+              });
 
               setUsers(prevUsers =>
                 prevUsers.map(user =>
@@ -335,12 +273,10 @@ export default function UsersScreen() {
           text: 'Approve',
           onPress: async () => {
             try {
-              if (!useFakeData) {
-                await updateDoc(doc(db, 'users', userId), {
-                  isExpert: true,
-                  isPendingExpert: false,
-                });
-              }
+              await updateDoc(doc(db, 'users', userId), {
+                isExpert: true,
+                isPendingExpert: false,
+              });
 
               setUsers(prevUsers =>
                 prevUsers.map(user =>
@@ -393,9 +329,10 @@ export default function UsersScreen() {
 
   return (
     <View style={styles.container}>
+      <NavigationMenu isVisible={menuVisible} onClose={() => setMenuVisible(false)} />
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+        <TouchableOpacity onPress={() => router.push(homeScreen as any)} style={styles.backButton}>
           <Ionicons name="arrow-back" size={28} color="#2d3e34" />
         </TouchableOpacity>
 
@@ -404,7 +341,7 @@ export default function UsersScreen() {
           <View style={styles.underline} />
         </View>
 
-        <TouchableOpacity onPress={() => Alert.alert('Menu pressed')} style={styles.menuButton}>
+        <TouchableOpacity onPress={() => setMenuVisible(true)} style={styles.menuButton}>
           <Ionicons name="menu" size={28} color="#2d3e34" />
         </TouchableOpacity>
       </View>

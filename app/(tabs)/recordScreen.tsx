@@ -3,6 +3,7 @@ import { Audio } from 'expo-av';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
+import { doc, getDoc } from 'firebase/firestore';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -15,9 +16,28 @@ import {
   View,
 } from 'react-native';
 import MapView, { Marker } from 'react-native-maps';
+import NavigationMenu from '../../components/NavigationMenu';
+import { auth, db } from '../firebaseConfig';
 
 const MAX_RECORD_SECONDS = 10;
 const MAX_MS = MAX_RECORD_SECONDS * 1000;
+
+// Helper function to get the correct home screen based on user role
+const getHomeScreen = async (): Promise<string> => {
+  try {
+    const user = auth.currentUser;
+    if (!user) return './volunteerHomeScreen';
+    
+    const userDoc = await getDoc(doc(db, 'users', user.uid));
+    const userData = userDoc.data() || {};
+    
+    if (userData.isAdmin) return './adminHomeScreen';
+    if (userData.isExpert) return './expertHomeScreen';
+    return './volunteerHomeScreen';
+  } catch {
+    return './volunteerHomeScreen';
+  }
+};
 
 export default function RecordScreen() {
   const [location, setLocation] = useState<Location.LocationObjectCoords | null>(null);
@@ -26,6 +46,8 @@ export default function RecordScreen() {
   const [sound, setSound] = useState<Audio.Sound | null>(null);
   const [timer, setTimer] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
+  const [homeScreen, setHomeScreen] = useState<string>('./volunteerHomeScreen');
+  const [menuVisible, setMenuVisible] = useState(false);
 
   const recRef = useRef<Audio.Recording | null>(null);
   const stoppingRef = useRef(false);
@@ -33,6 +55,11 @@ export default function RecordScreen() {
 
   const progressAnim = useRef(new Animated.Value(0)).current;
   const router = useRouter();
+
+  // Determine the correct home screen on mount
+  useEffect(() => {
+    getHomeScreen().then(setHomeScreen);
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -232,6 +259,7 @@ export default function RecordScreen() {
 
   return (
     <View style={styles.background}>
+      <NavigationMenu isVisible={menuVisible} onClose={() => setMenuVisible(false)} />
       <ScrollView 
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
@@ -240,11 +268,11 @@ export default function RecordScreen() {
         <View style={styles.container}>
           {/* Header */}
           <View style={styles.header}>
-            <TouchableOpacity onPress={() => router.back()} style={styles.iconButton}>
+            <TouchableOpacity onPress={() => router.push(homeScreen as any)} style={styles.iconButton}>
               <Ionicons name="arrow-back" size={28} color="#fff" />
             </TouchableOpacity>
 
-            <TouchableOpacity onPress={() => Alert.alert('Menu pressed')} style={styles.iconButton}>
+            <TouchableOpacity onPress={() => setMenuVisible(true)} style={styles.iconButton}>
               <Ionicons name="menu" size={28} color="#fff" />
             </TouchableOpacity>
           </View>
