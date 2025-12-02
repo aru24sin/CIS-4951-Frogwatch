@@ -46,3 +46,11 @@ backend/keys/*.json
 backend/*.json
 backend/keys/*.json
 backend/*.json
+.firebaserc
+firebase.json
+firestore-debug.log
+firestore_test.py
+google-cloud-cli-darwin-arm.tar.gz
+google-cloud-sdk/
+nohup.out
+.gcloudignore
