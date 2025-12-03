@@ -1,34 +1,22 @@
 // app/(tabs)/settingsScreen.tsx
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { onAuthStateChanged, signOut, updatePassword } from 'firebase/auth';
+import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    ScrollView,
-    StyleSheet,
-    Switch,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import NavigationMenu from '../../components/NavigationMenu';
 import { auth, db } from '../firebaseConfig';
-
-type UserData = {
-  firstName: string;
-  lastName: string;
-  username: string;
-  dateOfBirth: string;
-  email: string;
-  isExpert: boolean;
-  phoneNumber?: string;
-  bio?: string;
-  location?: string;
-};
 
 type UserSettings = {
   notifications: {
@@ -70,8 +58,13 @@ const getHomeScreen = async (): Promise<string> => {
     const userDoc = await getDoc(doc(db, 'users', user.uid));
     const userData = userDoc.data() || {};
     
-    if (userData.isAdmin) return './adminHomeScreen';
-    if (userData.isExpert) return './expertHomeScreen';
+    // Check both role field (string) and boolean fields for compatibility
+    const roleStr = (userData.role || '').toString().toLowerCase();
+    const isAdmin = userData.isAdmin === true || roleStr === 'admin';
+    const isExpert = userData.isExpert === true || roleStr === 'expert';
+    
+    if (isAdmin) return './adminHomeScreen';
+    if (isExpert) return './expertHomeScreen';
     return './volunteerHomeScreen';
   } catch {
     return './volunteerHomeScreen';
@@ -81,9 +74,9 @@ const getHomeScreen = async (): Promise<string> => {
 export default function SettingsScreen() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
-  const [userData, setUserData] = useState<UserData | null>(null);
   const [homeScreen, setHomeScreen] = useState<string>('./volunteerHomeScreen');
   const [menuVisible, setMenuVisible] = useState(false);
+  const [isExpert, setIsExpert] = useState(false);
   const [settings, setSettings] = useState<UserSettings>({
     notifications: {
       pushEnabled: true,
@@ -117,17 +110,6 @@ export default function SettingsScreen() {
   
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedSection, setExpandedSection] = useState<string | null>(null);
-  const [editMode, setEditMode] = useState(false);
-  
-  // Edit state
-  const [editFirstName, setEditFirstName] = useState('');
-  const [editLastName, setEditLastName] = useState('');
-  const [editUsername, setEditUsername] = useState('');
-  const [editPassword, setEditPassword] = useState('');
-  const [editPhone, setEditPhone] = useState('');
-  const [editBio, setEditBio] = useState('');
-  const [editLocation, setEditLocation] = useState('');
-  const [editDOB, setEditDOB] = useState('');
 
   // Determine the correct home screen on mount
   useEffect(() => {
@@ -145,15 +127,10 @@ export default function SettingsScreen() {
       try {
         const userDoc = await getDoc(doc(db, 'users', user.uid));
         if (userDoc.exists()) {
-          const data = userDoc.data() as UserData;
-          setUserData(data);
-          setEditFirstName(data.firstName);
-          setEditLastName(data.lastName);
-          setEditUsername(data.username);
-          setEditDOB(data.dateOfBirth);
-          setEditPhone(data.phoneNumber || '');
-          setEditBio(data.bio || '');
-          setEditLocation(data.location || '');
+          const userData = userDoc.data();
+          // Check both role field (string) and boolean fields for compatibility
+          const roleStr = (userData.role || '').toString().toLowerCase();
+          setIsExpert(userData.isExpert === true || roleStr === 'expert');
         }
 
         // Load user settings
@@ -176,14 +153,13 @@ export default function SettingsScreen() {
       setExpandedSection(null);
     } else {
       setExpandedSection(section);
-      setEditMode(false);
     }
   };
 
   const updateSettings = async (newSettings: UserSettings) => {
     try {
       if (!auth.currentUser) return;
-      await updateDoc(doc(db, 'userSettings', auth.currentUser.uid), newSettings);
+      await updateDoc(doc(db, 'userSettings', auth.currentUser.uid), newSettings as any);
       setSettings(newSettings);
     } catch (error) {
       console.error('Error updating settings:', error);
@@ -206,7 +182,7 @@ export default function SettingsScreen() {
                 await updateDoc(doc(db, 'users', auth.currentUser.uid), {
                   isExpert: false,
                 });
-                setUserData(prev => prev ? { ...prev, isExpert: false } : null);
+                setIsExpert(false);
                 Alert.alert('Success', 'Expert access removed');
               }
             } catch (error) {
@@ -217,41 +193,6 @@ export default function SettingsScreen() {
         },
       ]
     );
-  };
-
-  const handleSaveChanges = async () => {
-    try {
-      if (!auth.currentUser) return;
-
-      const updates: any = {
-        firstName: editFirstName,
-        lastName: editLastName,
-        username: editUsername,
-        dateOfBirth: editDOB,
-        phoneNumber: editPhone,
-        bio: editBio,
-        location: editLocation,
-      };
-
-      await updateDoc(doc(db, 'users', auth.currentUser.uid), updates);
-
-      // Update password if provided
-      if (editPassword && editPassword.length >= 6) {
-        await updatePassword(auth.currentUser, editPassword);
-      }
-
-      setUserData(prev => prev ? { ...prev, ...updates } : null);
-      setEditMode(false);
-      setEditPassword('');
-      Alert.alert('Success', 'Profile updated successfully');
-    } catch (error: any) {
-      console.error('Error saving changes:', error);
-      if (error.code === 'auth/requires-recent-login') {
-        Alert.alert('Error', 'Please log out and log back in to change your password');
-      } else {
-        Alert.alert('Error', 'Failed to update profile');
-      }
-    }
   };
 
   const handleLogout = () => {
@@ -266,7 +207,7 @@ export default function SettingsScreen() {
           onPress: async () => {
             try {
               await signOut(auth);
-              router.push('/');
+              router.replace('./landingScreen');
             } catch (error) {
               console.error('Error logging out:', error);
               Alert.alert('Error', 'Failed to logout');
@@ -311,14 +252,14 @@ export default function SettingsScreen() {
   };
 
   const allSections = [
-    'Account',
     'Notifications',
     'Permissions',
     'Privacy',
     'Preferences',
-    'Access',
+    'Expert Access',
     'About',
-    'Help & Support'
+    'Help & Support',
+    'Account Actions'
   ];
 
   const filteredSections = allSections.filter(section =>
@@ -336,10 +277,11 @@ export default function SettingsScreen() {
   return (
     <View style={styles.container}>
       <NavigationMenu isVisible={menuVisible} onClose={() => setMenuVisible(false)} />
+      
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.push(homeScreen as any)} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={28} color="#2d3e34" />
+          <Ionicons name="arrow-back" size={28} color="#fff" />
         </TouchableOpacity>
 
         <View>
@@ -348,26 +290,17 @@ export default function SettingsScreen() {
         </View>
 
         <TouchableOpacity onPress={() => setMenuVisible(true)} style={styles.menuButton}>
-          <Ionicons name="menu" size={28} color="#2d3e34" />
+          <Ionicons name="menu" size={28} color="#fff" />
         </TouchableOpacity>
       </View>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {/* Profile Picture */}
-        {!expandedSection && (
-          <View style={styles.profilePictureContainer}>
-            <View style={styles.profilePicture}>
-              <Ionicons name="person" size={80} color="#d4ff00" />
-            </View>
-          </View>
-        )}
-
         {/* Search Bar */}
         <View style={styles.searchContainer}>
           <Ionicons name="search" size={24} color="#999" style={styles.searchIcon} />
           <TextInput
             style={styles.searchInput}
-            placeholder="Search"
+            placeholder="Search settings..."
             placeholderTextColor="#999"
             value={searchQuery}
             onChangeText={setSearchQuery}
@@ -383,214 +316,24 @@ export default function SettingsScreen() {
                 onPress={() => handleSectionPress(section)}
               >
                 <Text style={styles.sectionButtonText}>{section}</Text>
+                <Ionicons 
+                  name={expandedSection === section ? 'chevron-up' : 'chevron-down'} 
+                  size={20} 
+                  color="#2d3e34" 
+                />
               </TouchableOpacity>
 
               {/* Expanded Section Content */}
               {expandedSection === section && (
                 <View style={styles.expandedContent}>
-                  {/* Account Section */}
-                  {section === 'Account' && userData && (
-                    <View style={styles.accountContent}>
-                      {editMode ? (
-                        <>
-                          <View style={styles.inputGroup}>
-                            <Text style={styles.inputLabel}>First Name</Text>
-                            <TextInput
-                              style={styles.input}
-                              value={editFirstName}
-                              onChangeText={setEditFirstName}
-                              placeholderTextColor="#999"
-                            />
-                          </View>
-
-                          <View style={styles.inputGroup}>
-                            <Text style={styles.inputLabel}>Last Name</Text>
-                            <TextInput
-                              style={styles.input}
-                              value={editLastName}
-                              onChangeText={setEditLastName}
-                              placeholderTextColor="#999"
-                            />
-                          </View>
-
-                          <View style={styles.inputGroup}>
-                            <Text style={styles.inputLabel}>Username</Text>
-                            <TextInput
-                              style={styles.input}
-                              value={editUsername}
-                              onChangeText={setEditUsername}
-                              placeholderTextColor="#999"
-                            />
-                          </View>
-
-                          <View style={styles.inputGroup}>
-                            <Text style={styles.inputLabel}>Email</Text>
-                            <TextInput
-                              style={[styles.input, styles.disabledInput]}
-                              value={userData.email}
-                              editable={false}
-                              placeholderTextColor="#999"
-                            />
-                          </View>
-
-                          <View style={styles.inputGroup}>
-                            <Text style={styles.inputLabel}>Phone Number</Text>
-                            <TextInput
-                              style={styles.input}
-                              value={editPhone}
-                              onChangeText={setEditPhone}
-                              placeholder="(123) 456-7890"
-                              placeholderTextColor="#999"
-                              keyboardType="phone-pad"
-                            />
-                          </View>
-
-                          <View style={styles.inputGroup}>
-                            <Text style={styles.inputLabel}>Location</Text>
-                            <TextInput
-                              style={styles.input}
-                              value={editLocation}
-                              onChangeText={setEditLocation}
-                              placeholder="City, State"
-                              placeholderTextColor="#999"
-                            />
-                          </View>
-
-                          <View style={styles.inputGroup}>
-                            <Text style={styles.inputLabel}>Bio</Text>
-                            <TextInput
-                              style={[styles.input, styles.textArea]}
-                              value={editBio}
-                              onChangeText={setEditBio}
-                              placeholder="Tell us about yourself..."
-                              placeholderTextColor="#999"
-                              multiline
-                            />
-                          </View>
-
-                          <View style={styles.inputGroup}>
-                            <Text style={styles.inputLabel}>New Password (optional)</Text>
-                            <TextInput
-                              style={styles.input}
-                              value={editPassword}
-                              onChangeText={setEditPassword}
-                              placeholder="Enter new password (6+ characters)"
-                              placeholderTextColor="#999"
-                              secureTextEntry
-                            />
-                          </View>
-
-                          <View style={styles.inputGroup}>
-                            <Text style={styles.inputLabel}>Date of Birth</Text>
-                            <TextInput
-                              style={styles.input}
-                              value={editDOB}
-                              onChangeText={setEditDOB}
-                              placeholder="MM/DD/YY"
-                              placeholderTextColor="#999"
-                            />
-                          </View>
-
-                          <View style={styles.editActions}>
-                            <TouchableOpacity
-                              style={styles.cancelButton}
-                              onPress={() => {
-                                setEditMode(false);
-                                setEditFirstName(userData.firstName);
-                                setEditLastName(userData.lastName);
-                                setEditUsername(userData.username);
-                                setEditPassword('');
-                                setEditDOB(userData.dateOfBirth);
-                                setEditPhone(userData.phoneNumber || '');
-                                setEditBio(userData.bio || '');
-                                setEditLocation(userData.location || '');
-                              }}
-                            >
-                              <Text style={styles.cancelButtonText}>Cancel</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                              style={styles.saveButton}
-                              onPress={handleSaveChanges}
-                            >
-                              <Text style={styles.saveButtonText}>Save</Text>
-                            </TouchableOpacity>
-                          </View>
-                        </>
-                      ) : (
-                        <>
-                          <View style={styles.infoRow}>
-                            <Text style={styles.infoLabel}>Name</Text>
-                            <Text style={styles.infoValue}>
-                              {userData.firstName} {userData.lastName}
-                            </Text>
-                          </View>
-
-                          <View style={styles.infoRow}>
-                            <Text style={styles.infoLabel}>Username</Text>
-                            <Text style={styles.infoValue}>{userData.username}</Text>
-                          </View>
-
-                          <View style={styles.infoRow}>
-                            <Text style={styles.infoLabel}>Email</Text>
-                            <Text style={styles.infoValue}>{userData.email}</Text>
-                          </View>
-
-                          {userData.phoneNumber && (
-                            <View style={styles.infoRow}>
-                              <Text style={styles.infoLabel}>Phone</Text>
-                              <Text style={styles.infoValue}>{userData.phoneNumber}</Text>
-                            </View>
-                          )}
-
-                          {userData.location && (
-                            <View style={styles.infoRow}>
-                              <Text style={styles.infoLabel}>Location</Text>
-                              <Text style={styles.infoValue}>{userData.location}</Text>
-                            </View>
-                          )}
-
-                          {userData.bio && (
-                            <View style={styles.infoRow}>
-                              <Text style={styles.infoLabel}>Bio</Text>
-                              <Text style={styles.infoValue}>{userData.bio}</Text>
-                            </View>
-                          )}
-
-                          <View style={styles.infoRow}>
-                            <Text style={styles.infoLabel}>Date of Birth</Text>
-                            <Text style={styles.infoValue}>{userData.dateOfBirth}</Text>
-                          </View>
-
-                          <TouchableOpacity
-                            style={styles.editButton}
-                            onPress={() => setEditMode(true)}
-                          >
-                            <Text style={styles.editButtonText}>Edit Profile</Text>
-                          </TouchableOpacity>
-
-                          <TouchableOpacity
-                            style={styles.logoutButton}
-                            onPress={handleLogout}
-                          >
-                            <Text style={styles.logoutButtonText}>Logout</Text>
-                          </TouchableOpacity>
-
-                          <TouchableOpacity
-                            style={styles.deleteButton}
-                            onPress={handleDeleteAccount}
-                          >
-                            <Text style={styles.deleteButtonText}>Delete Account</Text>
-                          </TouchableOpacity>
-                        </>
-                      )}
-                    </View>
-                  )}
-
                   {/* Notifications Section */}
                   {section === 'Notifications' && (
                     <View style={styles.settingsContent}>
                       <View style={styles.settingItem}>
-                        <Text style={styles.settingLabel}>Push Notifications</Text>
+                        <View style={styles.settingInfo}>
+                          <Text style={styles.settingLabel}>Push Notifications</Text>
+                          <Text style={styles.settingDescription}>Receive push notifications</Text>
+                        </View>
                         <Switch
                           value={settings.notifications.pushEnabled}
                           onValueChange={(value) => {
@@ -600,13 +343,16 @@ export default function SettingsScreen() {
                             };
                             updateSettings(newSettings);
                           }}
-                          trackColor={{ false: '#767577', true: '#d4ff00' }}
+                          trackColor={{ false: '#3d4f44', true: '#d4ff00' }}
                           thumbColor="#fff"
                         />
                       </View>
 
                       <View style={styles.settingItem}>
-                        <Text style={styles.settingLabel}>Email Notifications</Text>
+                        <View style={styles.settingInfo}>
+                          <Text style={styles.settingLabel}>Email Notifications</Text>
+                          <Text style={styles.settingDescription}>Receive email updates</Text>
+                        </View>
                         <Switch
                           value={settings.notifications.emailEnabled}
                           onValueChange={(value) => {
@@ -616,13 +362,16 @@ export default function SettingsScreen() {
                             };
                             updateSettings(newSettings);
                           }}
-                          trackColor={{ false: '#767577', true: '#d4ff00' }}
+                          trackColor={{ false: '#3d4f44', true: '#d4ff00' }}
                           thumbColor="#fff"
                         />
                       </View>
 
                       <View style={styles.settingItem}>
-                        <Text style={styles.settingLabel}>Recording Updates</Text>
+                        <View style={styles.settingInfo}>
+                          <Text style={styles.settingLabel}>Recording Updates</Text>
+                          <Text style={styles.settingDescription}>Get notified about recording status</Text>
+                        </View>
                         <Switch
                           value={settings.notifications.recordingUpdates}
                           onValueChange={(value) => {
@@ -632,45 +381,16 @@ export default function SettingsScreen() {
                             };
                             updateSettings(newSettings);
                           }}
-                          trackColor={{ false: '#767577', true: '#d4ff00' }}
+                          trackColor={{ false: '#3d4f44', true: '#d4ff00' }}
                           thumbColor="#fff"
                         />
                       </View>
 
                       <View style={styles.settingItem}>
-                        <Text style={styles.settingLabel}>Expert Responses</Text>
-                        <Switch
-                          value={settings.notifications.expertResponses}
-                          onValueChange={(value) => {
-                            const newSettings = {
-                              ...settings,
-                              notifications: { ...settings.notifications, expertResponses: value }
-                            };
-                            updateSettings(newSettings);
-                          }}
-                          trackColor={{ false: '#767577', true: '#d4ff00' }}
-                          thumbColor="#fff"
-                        />
-                      </View>
-
-                      <View style={styles.settingItem}>
-                        <Text style={styles.settingLabel}>Weekly Digest</Text>
-                        <Switch
-                          value={settings.notifications.weeklyDigest}
-                          onValueChange={(value) => {
-                            const newSettings = {
-                              ...settings,
-                              notifications: { ...settings.notifications, weeklyDigest: value }
-                            };
-                            updateSettings(newSettings);
-                          }}
-                          trackColor={{ false: '#767577', true: '#d4ff00' }}
-                          thumbColor="#fff"
-                        />
-                      </View>
-
-                      <View style={styles.settingItem}>
-                        <Text style={styles.settingLabel}>Notification Sounds</Text>
+                        <View style={styles.settingInfo}>
+                          <Text style={styles.settingLabel}>Sound</Text>
+                          <Text style={styles.settingDescription}>Play sounds for notifications</Text>
+                        </View>
                         <Switch
                           value={settings.notifications.soundEnabled}
                           onValueChange={(value) => {
@@ -680,7 +400,7 @@ export default function SettingsScreen() {
                             };
                             updateSettings(newSettings);
                           }}
-                          trackColor={{ false: '#767577', true: '#d4ff00' }}
+                          trackColor={{ false: '#3d4f44', true: '#d4ff00' }}
                           thumbColor="#fff"
                         />
                       </View>
@@ -693,9 +413,7 @@ export default function SettingsScreen() {
                       <View style={styles.settingItem}>
                         <View style={styles.settingInfo}>
                           <Text style={styles.settingLabel}>Location (Always)</Text>
-                          <Text style={styles.settingDescription}>
-                            Allow access to location at all times
-                          </Text>
+                          <Text style={styles.settingDescription}>Allow location access always</Text>
                         </View>
                         <Switch
                           value={settings.permissions.locationAlways}
@@ -706,17 +424,15 @@ export default function SettingsScreen() {
                             };
                             updateSettings(newSettings);
                           }}
-                          trackColor={{ false: '#767577', true: '#d4ff00' }}
+                          trackColor={{ false: '#3d4f44', true: '#d4ff00' }}
                           thumbColor="#fff"
                         />
                       </View>
 
                       <View style={styles.settingItem}>
                         <View style={styles.settingInfo}>
-                          <Text style={styles.settingLabel}>Location (While Using)</Text>
-                          <Text style={styles.settingDescription}>
-                            Allow access only while using the app
-                          </Text>
+                          <Text style={styles.settingLabel}>Location (In Use)</Text>
+                          <Text style={styles.settingDescription}>Allow location when using app</Text>
                         </View>
                         <Switch
                           value={settings.permissions.locationInUse}
@@ -727,7 +443,7 @@ export default function SettingsScreen() {
                             };
                             updateSettings(newSettings);
                           }}
-                          trackColor={{ false: '#767577', true: '#d4ff00' }}
+                          trackColor={{ false: '#3d4f44', true: '#d4ff00' }}
                           thumbColor="#fff"
                         />
                       </View>
@@ -735,9 +451,7 @@ export default function SettingsScreen() {
                       <View style={styles.settingItem}>
                         <View style={styles.settingInfo}>
                           <Text style={styles.settingLabel}>Microphone</Text>
-                          <Text style={styles.settingDescription}>
-                            Required for recording frog calls
-                          </Text>
+                          <Text style={styles.settingDescription}>Required for recording</Text>
                         </View>
                         <Switch
                           value={settings.permissions.microphone}
@@ -748,7 +462,7 @@ export default function SettingsScreen() {
                             };
                             updateSettings(newSettings);
                           }}
-                          trackColor={{ false: '#767577', true: '#d4ff00' }}
+                          trackColor={{ false: '#3d4f44', true: '#d4ff00' }}
                           thumbColor="#fff"
                         />
                       </View>
@@ -756,9 +470,7 @@ export default function SettingsScreen() {
                       <View style={styles.settingItem}>
                         <View style={styles.settingInfo}>
                           <Text style={styles.settingLabel}>Camera</Text>
-                          <Text style={styles.settingDescription}>
-                            For taking photos of frogs
-                          </Text>
+                          <Text style={styles.settingDescription}>Allow camera access</Text>
                         </View>
                         <Switch
                           value={settings.permissions.camera}
@@ -769,28 +481,7 @@ export default function SettingsScreen() {
                             };
                             updateSettings(newSettings);
                           }}
-                          trackColor={{ false: '#767577', true: '#d4ff00' }}
-                          thumbColor="#fff"
-                        />
-                      </View>
-
-                      <View style={styles.settingItem}>
-                        <View style={styles.settingInfo}>
-                          <Text style={styles.settingLabel}>Photo Library</Text>
-                          <Text style={styles.settingDescription}>
-                            Access to save and upload photos
-                          </Text>
-                        </View>
-                        <Switch
-                          value={settings.permissions.photoLibrary}
-                          onValueChange={(value) => {
-                            const newSettings = {
-                              ...settings,
-                              permissions: { ...settings.permissions, photoLibrary: value }
-                            };
-                            updateSettings(newSettings);
-                          }}
-                          trackColor={{ false: '#767577', true: '#d4ff00' }}
+                          trackColor={{ false: '#3d4f44', true: '#d4ff00' }}
                           thumbColor="#fff"
                         />
                       </View>
@@ -802,10 +493,8 @@ export default function SettingsScreen() {
                     <View style={styles.settingsContent}>
                       <View style={styles.settingItem}>
                         <View style={styles.settingInfo}>
-                          <Text style={styles.settingLabel}>Profile Visibility</Text>
-                          <Text style={styles.settingDescription}>
-                            Allow others to see your profile
-                          </Text>
+                          <Text style={styles.settingLabel}>Profile Visible</Text>
+                          <Text style={styles.settingDescription}>Allow others to see your profile</Text>
                         </View>
                         <Switch
                           value={settings.privacy.profileVisible}
@@ -816,7 +505,7 @@ export default function SettingsScreen() {
                             };
                             updateSettings(newSettings);
                           }}
-                          trackColor={{ false: '#767577', true: '#d4ff00' }}
+                          trackColor={{ false: '#3d4f44', true: '#d4ff00' }}
                           thumbColor="#fff"
                         />
                       </View>
@@ -824,9 +513,7 @@ export default function SettingsScreen() {
                       <View style={styles.settingItem}>
                         <View style={styles.settingInfo}>
                           <Text style={styles.settingLabel}>Show Location</Text>
-                          <Text style={styles.settingDescription}>
-                            Display your location on recordings
-                          </Text>
+                          <Text style={styles.settingDescription}>Display location on recordings</Text>
                         </View>
                         <Switch
                           value={settings.privacy.showLocation}
@@ -837,28 +524,7 @@ export default function SettingsScreen() {
                             };
                             updateSettings(newSettings);
                           }}
-                          trackColor={{ false: '#767577', true: '#d4ff00' }}
-                          thumbColor="#fff"
-                        />
-                      </View>
-
-                      <View style={styles.settingItem}>
-                        <View style={styles.settingInfo}>
-                          <Text style={styles.settingLabel}>Show Recordings</Text>
-                          <Text style={styles.settingDescription}>
-                            Make your recordings publicly visible
-                          </Text>
-                        </View>
-                        <Switch
-                          value={settings.privacy.showRecordings}
-                          onValueChange={(value) => {
-                            const newSettings = {
-                              ...settings,
-                              privacy: { ...settings.privacy, showRecordings: value }
-                            };
-                            updateSettings(newSettings);
-                          }}
-                          trackColor={{ false: '#767577', true: '#d4ff00' }}
+                          trackColor={{ false: '#3d4f44', true: '#d4ff00' }}
                           thumbColor="#fff"
                         />
                       </View>
@@ -866,9 +532,7 @@ export default function SettingsScreen() {
                       <View style={styles.settingItem}>
                         <View style={styles.settingInfo}>
                           <Text style={styles.settingLabel}>Data Collection</Text>
-                          <Text style={styles.settingDescription}>
-                            Allow anonymous usage data collection
-                          </Text>
+                          <Text style={styles.settingDescription}>Allow anonymous usage data</Text>
                         </View>
                         <Switch
                           value={settings.privacy.allowDataCollection}
@@ -879,18 +543,10 @@ export default function SettingsScreen() {
                             };
                             updateSettings(newSettings);
                           }}
-                          trackColor={{ false: '#767577', true: '#d4ff00' }}
+                          trackColor={{ false: '#3d4f44', true: '#d4ff00' }}
                           thumbColor="#fff"
                         />
                       </View>
-
-                      <TouchableOpacity style={styles.actionButton}>
-                        <Text style={styles.actionButtonText}>View Privacy Policy</Text>
-                      </TouchableOpacity>
-
-                      <TouchableOpacity style={styles.actionButton}>
-                        <Text style={styles.actionButtonText}>Download My Data</Text>
-                      </TouchableOpacity>
                     </View>
                   )}
 
@@ -898,7 +554,10 @@ export default function SettingsScreen() {
                   {section === 'Preferences' && (
                     <View style={styles.settingsContent}>
                       <View style={styles.settingItem}>
-                        <Text style={styles.settingLabel}>Dark Mode</Text>
+                        <View style={styles.settingInfo}>
+                          <Text style={styles.settingLabel}>Dark Mode</Text>
+                          <Text style={styles.settingDescription}>Use dark theme</Text>
+                        </View>
                         <Switch
                           value={settings.preferences.darkMode}
                           onValueChange={(value) => {
@@ -908,29 +567,16 @@ export default function SettingsScreen() {
                             };
                             updateSettings(newSettings);
                           }}
-                          trackColor={{ false: '#767577', true: '#d4ff00' }}
+                          trackColor={{ false: '#3d4f44', true: '#d4ff00' }}
                           thumbColor="#fff"
                         />
                       </View>
 
                       <View style={styles.settingItem}>
-                        <Text style={styles.settingLabel}>Auto-play Audio</Text>
-                        <Switch
-                          value={settings.preferences.autoPlay}
-                          onValueChange={(value) => {
-                            const newSettings = {
-                              ...settings,
-                              preferences: { ...settings.preferences, autoPlay: value }
-                            };
-                            updateSettings(newSettings);
-                          }}
-                          trackColor={{ false: '#767577', true: '#d4ff00' }}
-                          thumbColor="#fff"
-                        />
-                      </View>
-
-                      <View style={styles.settingItem}>
-                        <Text style={styles.settingLabel}>High Quality Audio</Text>
+                        <View style={styles.settingInfo}>
+                          <Text style={styles.settingLabel}>High Quality Audio</Text>
+                          <Text style={styles.settingDescription}>Record in high quality</Text>
+                        </View>
                         <Switch
                           value={settings.preferences.highQualityAudio}
                           onValueChange={(value) => {
@@ -940,17 +586,28 @@ export default function SettingsScreen() {
                             };
                             updateSettings(newSettings);
                           }}
-                          trackColor={{ false: '#767577', true: '#d4ff00' }}
+                          trackColor={{ false: '#3d4f44', true: '#d4ff00' }}
                           thumbColor="#fff"
                         />
                       </View>
 
-                      <View style={styles.settingSection}>
-                        <Text style={styles.sectionLabel}>Language</Text>
-                        <TouchableOpacity style={styles.selectButton}>
-                          <Text style={styles.selectButtonText}>{settings.preferences.language}</Text>
-                          <Ionicons name="chevron-forward" size={20} color="#d4ff00" />
-                        </TouchableOpacity>
+                      <View style={styles.settingItem}>
+                        <View style={styles.settingInfo}>
+                          <Text style={styles.settingLabel}>Auto-Play Audio</Text>
+                          <Text style={styles.settingDescription}>Auto-play recordings in history</Text>
+                        </View>
+                        <Switch
+                          value={settings.preferences.autoPlay}
+                          onValueChange={(value) => {
+                            const newSettings = {
+                              ...settings,
+                              preferences: { ...settings.preferences, autoPlay: value }
+                            };
+                            updateSettings(newSettings);
+                          }}
+                          trackColor={{ false: '#3d4f44', true: '#d4ff00' }}
+                          thumbColor="#fff"
+                        />
                       </View>
 
                       <View style={styles.settingSection}>
@@ -994,47 +651,52 @@ export default function SettingsScreen() {
                           </TouchableOpacity>
                         </View>
                       </View>
-
-                      <TouchableOpacity style={styles.actionButton}>
-                        <Text style={styles.actionButtonText}>Clear Cache</Text>
-                      </TouchableOpacity>
-
-                      <TouchableOpacity style={styles.actionButton}>
-                        <Text style={styles.actionButtonText}>Reset All Settings</Text>
-                      </TouchableOpacity>
                     </View>
                   )}
 
-                  {/* Access Section */}
-                  {section === 'Access' && userData && (
+                  {/* Expert Access Section */}
+                  {section === 'Expert Access' && (
                     <View style={styles.accessContent}>
-                      {userData.isExpert ? (
+                      {isExpert ? (
                         <>
-                          <Text style={styles.accessTitle}>
-                            You have received{'\n'}Expert access
+                          <View style={styles.expertBadgeContainer}>
+                            <Ionicons name="shield-checkmark" size={48} color="#4db8e8" />
+                          </View>
+                          <Text style={styles.accessTitle}>You have Expert Access</Text>
+                          <Text style={styles.accessDescription}>
+                            You can review and verify recordings submitted by other users.
                           </Text>
-
-                          <Text style={styles.removeAccessText}>
-                            Remove expert access?
-                          </Text>
+                          <TouchableOpacity
+                            style={styles.takeLookButton}
+                            onPress={() => router.push('./expert')}
+                          >
+                            <Text style={styles.takeLookButtonText}>Review Queue</Text>
+                          </TouchableOpacity>
                           <TouchableOpacity
                             style={styles.removeButton}
                             onPress={handleRemoveExpertAccess}
                           >
-                            <Text style={styles.removeButtonText}>Remove</Text>
+                            <Text style={styles.removeButtonText}>Remove Expert Access</Text>
                           </TouchableOpacity>
                         </>
                       ) : (
                         <>
-                          <Text style={styles.accessTitle}>
-                            You do not have expert access
-                          </Text>
+                          <View style={styles.expertBadgeContainer}>
+                            <Ionicons name="shield-outline" size={48} color="#d4ff00" />
+                          </View>
+                          <Text style={styles.accessTitle}>Become an Expert</Text>
                           <Text style={styles.accessDescription}>
-                            Expert access allows you to review and verify frog recordings submitted by users.
+                            Experts can review and verify frog recordings submitted by volunteers. 
+                            Request access to help improve data quality.
                           </Text>
                           <TouchableOpacity
                             style={styles.requestButton}
-                            onPress={() => Alert.alert('Request Sent', 'Your expert access request has been submitted for review.')}
+                            onPress={() => {
+                              Alert.alert(
+                                'Request Sent',
+                                'Your expert access request has been submitted. An admin will review your request.'
+                              );
+                            }}
                           >
                             <Text style={styles.requestButtonText}>Request Expert Access</Text>
                           </TouchableOpacity>
@@ -1050,37 +712,13 @@ export default function SettingsScreen() {
                         <Text style={styles.aboutLabel}>Version</Text>
                         <Text style={styles.aboutValue}>1.0.0</Text>
                       </View>
-
                       <View style={styles.aboutItem}>
-                        <Text style={styles.aboutLabel}>Build Number</Text>
-                        <Text style={styles.aboutValue}>100</Text>
+                        <Text style={styles.aboutLabel}>Build</Text>
+                        <Text style={styles.aboutValue}>2024.12.03</Text>
                       </View>
-
-                      <View style={styles.aboutItem}>
-                        <Text style={styles.aboutLabel}>Last Updated</Text>
-                        <Text style={styles.aboutValue}>October 15, 2025</Text>
-                      </View>
-
-                      <TouchableOpacity style={styles.actionButton}>
-                        <Text style={styles.actionButtonText}>Check for Updates</Text>
-                      </TouchableOpacity>
-
-                      <TouchableOpacity style={styles.actionButton}>
-                        <Text style={styles.actionButtonText}>Terms of Service</Text>
-                      </TouchableOpacity>
-
-                      <TouchableOpacity style={styles.actionButton}>
-                        <Text style={styles.actionButtonText}>Privacy Policy</Text>
-                      </TouchableOpacity>
-
-                      <TouchableOpacity style={styles.actionButton}>
-                        <Text style={styles.actionButtonText}>Open Source Licenses</Text>
-                      </TouchableOpacity>
-
                       <View style={styles.aboutFooter}>
                         <Text style={styles.aboutFooterText}>
-                          FrogCatcher © 2025{'\n'}
-                          Made with 🐸 for amphibian conservation
+                          FrogWatch+ is dedicated to conservation{'\n'}through citizen science.
                         </Text>
                       </View>
                     </View>
@@ -1090,48 +728,39 @@ export default function SettingsScreen() {
                   {section === 'Help & Support' && (
                     <View style={styles.supportContent}>
                       <TouchableOpacity style={styles.supportButton}>
-                        <Ionicons name="chatbubble-ellipses" size={24} color="#d4ff00" />
+                        <Ionicons name="help-circle-outline" size={24} color="#d4ff00" />
+                        <Text style={styles.supportButtonText}>FAQs</Text>
+                        <Ionicons name="chevron-forward" size={20} color="#888" />
+                      </TouchableOpacity>
+                      <TouchableOpacity style={styles.supportButton}>
+                        <Ionicons name="mail-outline" size={24} color="#d4ff00" />
                         <Text style={styles.supportButtonText}>Contact Support</Text>
-                        <Ionicons name="chevron-forward" size={20} color="#d4ff00" />
+                        <Ionicons name="chevron-forward" size={20} color="#888" />
                       </TouchableOpacity>
-
                       <TouchableOpacity style={styles.supportButton}>
-                        <Ionicons name="document-text" size={24} color="#d4ff00" />
-                        <Text style={styles.supportButtonText}>User Guide</Text>
-                        <Ionicons name="chevron-forward" size={20} color="#d4ff00" />
+                        <Ionicons name="document-text-outline" size={24} color="#d4ff00" />
+                        <Text style={styles.supportButtonText}>Terms of Service</Text>
+                        <Ionicons name="chevron-forward" size={20} color="#888" />
                       </TouchableOpacity>
-
                       <TouchableOpacity style={styles.supportButton}>
-                        <Ionicons name="help-circle" size={24} color="#d4ff00" />
-                        <Text style={styles.supportButtonText}>FAQ</Text>
-                        <Ionicons name="chevron-forward" size={20} color="#d4ff00" />
+                        <Ionicons name="lock-closed-outline" size={24} color="#d4ff00" />
+                        <Text style={styles.supportButtonText}>Privacy Policy</Text>
+                        <Ionicons name="chevron-forward" size={20} color="#888" />
                       </TouchableOpacity>
+                    </View>
+                  )}
 
-                      <TouchableOpacity style={styles.supportButton}>
-                        <Ionicons name="bug" size={24} color="#d4ff00" />
-                        <Text style={styles.supportButtonText}>Report a Bug</Text>
-                        <Ionicons name="chevron-forward" size={20} color="#d4ff00" />
+                  {/* Account Actions Section */}
+                  {section === 'Account Actions' && (
+                    <View style={styles.accountActionsContent}>
+                      <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+                        <Ionicons name="log-out-outline" size={24} color="#fff" />
+                        <Text style={styles.logoutButtonText}>Logout</Text>
                       </TouchableOpacity>
-
-                      <TouchableOpacity style={styles.supportButton}>
-                        <Ionicons name="bulb" size={24} color="#d4ff00" />
-                        <Text style={styles.supportButtonText}>Feature Request</Text>
-                        <Ionicons name="chevron-forward" size={20} color="#d4ff00" />
+                      <TouchableOpacity style={styles.deleteButton} onPress={handleDeleteAccount}>
+                        <Ionicons name="trash-outline" size={24} color="#fff" />
+                        <Text style={styles.deleteButtonText}>Delete Account</Text>
                       </TouchableOpacity>
-
-                      <TouchableOpacity style={styles.supportButton}>
-                        <Ionicons name="school" size={24} color="#d4ff00" />
-                        <Text style={styles.supportButtonText}>Tutorial Videos</Text>
-                        <Ionicons name="chevron-forward" size={20} color="#d4ff00" />
-                      </TouchableOpacity>
-
-                      <View style={styles.supportFooter}>
-                        <Text style={styles.supportFooterText}>
-                          Need immediate help?{'\n'}
-                          Email: support@frogcatcher.app{'\n'}
-                          Phone: 1-800-FROG-HELP
-                        </Text>
-                      </View>
                     </View>
                   )}
                 </View>
@@ -1147,21 +776,21 @@ export default function SettingsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#3d5e44',
+    backgroundColor: '#3F5A47',
   },
   header: {
-    paddingTop: 50,
-    paddingHorizontal: 20,
-    paddingBottom: 20,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 60,
+    marginBottom: 20,
   },
   backButton: {
     width: 50,
     height: 50,
     borderRadius: 25,
-    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    backgroundColor: 'rgba(0, 0, 0, 0.2)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1169,202 +798,77 @@ const styles = StyleSheet.create({
     fontSize: 32,
     fontWeight: '500',
     color: '#fff',
+    textAlign: 'center',
   },
   underline: {
     height: 3,
     backgroundColor: '#d4ff00',
     marginTop: 4,
-    width: '80%',
+    borderRadius: 2,
   },
   menuButton: {
     width: 50,
     height: 50,
     borderRadius: 25,
-    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    backgroundColor: 'rgba(0, 0, 0, 0.2)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   content: {
     flex: 1,
-  },
-  profilePictureContainer: {
-    alignItems: 'center',
-    marginTop: 20,
-    marginBottom: 30,
-  },
-  profilePicture: {
-    width: 180,
-    height: 180,
-    borderRadius: 90,
-    backgroundColor: '#2d3e34',
-    alignItems: 'center',
-    justifyContent: 'center',
+    paddingHorizontal: 20,
   },
   searchContainer: {
-    marginHorizontal: 20,
-    marginBottom: 20,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#fff',
-    borderRadius: 25,
-    borderWidth: 3,
-    borderColor: '#d4ff00',
-    paddingHorizontal: 15,
+    backgroundColor: '#2d3e34',
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    marginBottom: 20,
   },
   searchIcon: {
-    marginRight: 10,
+    marginRight: 12,
   },
   searchInput: {
     flex: 1,
-    paddingVertical: 12,
+    paddingVertical: 14,
     fontSize: 16,
-    color: '#333',
+    color: '#fff',
   },
   sectionsContainer: {
-    marginHorizontal: 20,
-    backgroundColor: '#2d3e34',
-    borderRadius: 20,
-    padding: 20,
     marginBottom: 30,
   },
   sectionButton: {
     backgroundColor: '#d4ff00',
     borderRadius: 12,
-    paddingVertical: 14,
+    paddingVertical: 16,
     paddingHorizontal: 20,
-    marginBottom: 12,
+    marginBottom: 8,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   sectionButtonText: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '600',
     color: '#2d3e34',
   },
   expandedContent: {
-    backgroundColor: '#3d4f44',
+    backgroundColor: '#2d3e34',
     borderRadius: 12,
     padding: 20,
-    marginBottom: 12,
-  },
-  accountContent: {
-    gap: 16,
-  },
-  infoRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingBottom: 12,
-    borderBottomWidth: 2,
-    borderBottomColor: '#d4ff00',
-  },
-  infoLabel: {
-    fontSize: 16,
-    color: '#fff',
-    fontWeight: '500',
-  },
-  infoValue: {
-    fontSize: 16,
-    color: '#fff',
-    maxWidth: '60%',
-    textAlign: 'right',
-  },
-  inputGroup: {
-    gap: 8,
-  },
-  inputLabel: {
-    fontSize: 16,
-    color: '#fff',
-    fontWeight: '500',
-  },
-  input: {
-    backgroundColor: '#fff',
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 16,
-    color: '#333',
-    borderBottomWidth: 2,
-    borderBottomColor: '#d4ff00',
-  },
-  disabledInput: {
-    backgroundColor: '#e0e0e0',
-    color: '#666',
-  },
-  textArea: {
-    height: 80,
-    textAlignVertical: 'top',
-  },
-  editActions: {
-    flexDirection: 'row',
-    gap: 12,
-    marginTop: 8,
-  },
-  cancelButton: {
-    flex: 1,
-    backgroundColor: '#5d6f64',
-    borderRadius: 12,
-    paddingVertical: 12,
-    alignItems: 'center',
-  },
-  cancelButtonText: {
-    fontSize: 16,
-    color: '#fff',
-    fontWeight: '600',
-  },
-  saveButton: {
-    flex: 1,
-    backgroundColor: '#d4ff00',
-    borderRadius: 12,
-    paddingVertical: 12,
-    alignItems: 'center',
-  },
-  saveButtonText: {
-    fontSize: 16,
-    color: '#2d3e34',
-    fontWeight: '700',
-  },
-  editButton: {
-    backgroundColor: '#d4ff00',
-    borderRadius: 12,
-    paddingVertical: 12,
-    alignItems: 'center',
-    marginTop: 8,
-  },
-  editButtonText: {
-    fontSize: 16,
-    color: '#2d3e34',
-    fontWeight: '700',
-  },
-  logoutButton: {
-    backgroundColor: '#5d6f64',
-    borderRadius: 12,
-    paddingVertical: 12,
-    alignItems: 'center',
-    marginTop: 8,
-  },
-  logoutButtonText: {
-    fontSize: 16,
-    color: '#fff',
-    fontWeight: '600',
-  },
-  deleteButton: {
-    backgroundColor: '#d9534f',
-    borderRadius: 12,
-    paddingVertical: 12,
-    alignItems: 'center',
-    marginTop: 8,
-  },
-  deleteButtonText: {
-    fontSize: 16,
-    color: '#fff',
-    fontWeight: '600',
+    marginBottom: 8,
   },
   settingsContent: {
-    gap: 16,
+    gap: 8,
   },
   settingItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 8,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.1)',
   },
   settingInfo: {
     flex: 1,
@@ -1377,41 +881,27 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   settingDescription: {
-    fontSize: 13,
+    fontSize: 12,
     color: '#aaa',
   },
   settingSection: {
-    gap: 8,
-    paddingVertical: 8,
+    marginTop: 16,
   },
   sectionLabel: {
-    fontSize: 16,
-    color: '#fff',
+    fontSize: 14,
+    color: '#d4ff00',
     fontWeight: '500',
-  },
-  selectButton: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: '#2d3e34',
-    borderRadius: 8,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: '#d4ff00',
-  },
-  selectButtonText: {
-    fontSize: 16,
-    color: '#fff',
+    marginBottom: 8,
   },
   segmentedControl: {
     flexDirection: 'row',
-    backgroundColor: '#2d3e34',
+    backgroundColor: '#3d4f44',
     borderRadius: 8,
     padding: 4,
   },
   segmentButton: {
     flex: 1,
-    paddingVertical: 8,
+    paddingVertical: 10,
     alignItems: 'center',
     borderRadius: 6,
   },
@@ -1419,7 +909,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#d4ff00',
   },
   segmentButtonText: {
-    fontSize: 16,
+    fontSize: 14,
     color: '#fff',
     fontWeight: '500',
   },
@@ -1427,78 +917,65 @@ const styles = StyleSheet.create({
     color: '#2d3e34',
     fontWeight: '700',
   },
-  actionButton: {
-    backgroundColor: '#2d3e34',
-    borderRadius: 8,
-    padding: 14,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#d4ff00',
-  },
-  actionButtonText: {
-    fontSize: 16,
-    color: '#d4ff00',
-    fontWeight: '500',
-  },
   accessContent: {
     alignItems: 'center',
-    gap: 16,
+    gap: 12,
+  },
+  expertBadgeContainer: {
+    marginBottom: 8,
   },
   accessTitle: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '600',
     color: '#fff',
     textAlign: 'center',
-    lineHeight: 28,
   },
   accessDescription: {
-    fontSize: 15,
-    color: '#ccc',
+    fontSize: 14,
+    color: '#aaa',
     textAlign: 'center',
-    lineHeight: 22,
+    lineHeight: 20,
   },
   takeLookButton: {
-    backgroundColor: '#d4ff00',
-    borderRadius: 25,
-    paddingVertical: 14,
-    paddingHorizontal: 50,
+    backgroundColor: '#4db8e8',
+    borderRadius: 20,
+    paddingVertical: 12,
+    paddingHorizontal: 30,
     marginTop: 8,
   },
   takeLookButtonText: {
-    fontSize: 18,
-    color: '#2d3e34',
-    fontWeight: '700',
-  },
-  removeAccessText: {
     fontSize: 16,
     color: '#fff',
-    marginTop: 20,
+    fontWeight: '600',
   },
   removeButton: {
-    backgroundColor: '#d4ff00',
-    borderRadius: 25,
-    paddingVertical: 14,
-    paddingHorizontal: 50,
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: '#FF6B6B',
+    borderRadius: 20,
+    paddingVertical: 12,
+    paddingHorizontal: 30,
+    marginTop: 8,
   },
   removeButtonText: {
-    fontSize: 18,
-    color: '#2d3e34',
-    fontWeight: '700',
+    fontSize: 14,
+    color: '#FF6B6B',
+    fontWeight: '500',
   },
   requestButton: {
     backgroundColor: '#d4ff00',
-    borderRadius: 25,
-    paddingVertical: 14,
-    paddingHorizontal: 40,
+    borderRadius: 20,
+    paddingVertical: 12,
+    paddingHorizontal: 30,
     marginTop: 8,
   },
   requestButtonText: {
-    fontSize: 18,
+    fontSize: 16,
     color: '#2d3e34',
     fontWeight: '700',
   },
   aboutContent: {
-    gap: 12,
+    gap: 8,
   },
   aboutItem: {
     flexDirection: 'row',
@@ -1506,7 +983,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#5d6f64',
+    borderBottomColor: 'rgba(255,255,255,0.1)',
   },
   aboutLabel: {
     fontSize: 16,
@@ -1518,29 +995,27 @@ const styles = StyleSheet.create({
     color: '#d4ff00',
   },
   aboutFooter: {
-    marginTop: 20,
-    paddingTop: 20,
-    borderTopWidth: 2,
-    borderTopColor: '#d4ff00',
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(212, 255, 0, 0.2)',
     alignItems: 'center',
   },
   aboutFooterText: {
-    fontSize: 14,
-    color: '#ccc',
+    fontSize: 13,
+    color: '#aaa',
     textAlign: 'center',
-    lineHeight: 22,
+    lineHeight: 20,
   },
   supportContent: {
-    gap: 12,
+    gap: 8,
   },
   supportButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#2d3e34',
+    backgroundColor: '#3d4f44',
     borderRadius: 12,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#d4ff00',
+    padding: 14,
     gap: 12,
   },
   supportButtonText: {
@@ -1549,17 +1024,37 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '500',
   },
-  supportFooter: {
-    marginTop: 20,
-    paddingTop: 20,
-    borderTopWidth: 2,
-    borderTopColor: '#d4ff00',
-    alignItems: 'center',
+  accountActionsContent: {
+    gap: 12,
   },
-  supportFooterText: {
-    fontSize: 14,
-    color: '#ccc',
-    textAlign: 'center',
-    lineHeight: 22,
+  logoutButton: {
+    backgroundColor: '#5d6f64',
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  logoutButtonText: {
+    fontSize: 16,
+    color: '#fff',
+    fontWeight: '600',
+  },
+  deleteButton: {
+    backgroundColor: '#d9534f',
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  deleteButtonText: {
+    fontSize: 16,
+    color: '#fff',
+    fontWeight: '600',
   },
 });

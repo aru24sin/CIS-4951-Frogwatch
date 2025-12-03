@@ -6,6 +6,8 @@ import { doc, getDoc } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import {
   Alert,
+  Animated,
+  Dimensions,
   Modal,
   StyleSheet,
   Text,
@@ -14,97 +16,108 @@ import {
 } from 'react-native';
 import { auth, db } from '../app/firebaseConfig';
 
-type UserRole = 'volunteer' | 'expert' | 'admin';
-
-type MenuItem = {
-  icon: keyof typeof Ionicons.glyphMap;
-  label: string;
-  route: string;
-};
-
 type NavigationMenuProps = {
   isVisible: boolean;
   onClose: () => void;
 };
 
-// Menu items for each role
-const volunteerMenuItems: MenuItem[] = [
-  { icon: 'home', label: 'Home', route: './volunteerHomeScreen' },
-  { icon: 'radio-button-on', label: 'Recording', route: './recordScreen' },
-  { icon: 'bookmark', label: 'History', route: './historyScreen' },
-  { icon: 'map', label: 'Map', route: './mapHistoryScreen' },
-  { icon: 'settings', label: 'Settings', route: './settingsScreen' },
-];
+type MenuItem = {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  route: string;
+  roles?: ('volunteer' | 'expert' | 'admin')[];
+};
 
-const expertMenuItems: MenuItem[] = [
-  { icon: 'home', label: 'Home', route: './expertHomeScreen' },
-  { icon: 'radio-button-on', label: 'Recording', route: './recordScreen' },
-  { icon: 'bookmark', label: 'History', route: './historyScreen' },
-  { icon: 'map', label: 'Map', route: './mapHistoryScreen' },
-  { icon: 'time', label: 'Submissions', route: './submitsScreen' },
-  { icon: 'settings', label: 'Settings', route: './settingsScreen' },
-];
-
-const adminMenuItems: MenuItem[] = [
-  { icon: 'home', label: 'Home', route: './adminHomeScreen' },
-  { icon: 'people', label: 'Users', route: './usersScreen' },
-  { icon: 'radio-button-on', label: 'Recording', route: './recordScreen' },
-  { icon: 'bookmark', label: 'History', route: './historyScreen' },
-  { icon: 'map', label: 'Map', route: './mapHistoryScreen' },
-  { icon: 'settings', label: 'Settings', route: './settingsScreen' },
-];
+const { width } = Dimensions.get('window');
 
 export default function NavigationMenu({ isVisible, onClose }: NavigationMenuProps) {
   const router = useRouter();
-  const [role, setRole] = useState<UserRole>('volunteer');
+  const [slideAnim] = useState(new Animated.Value(width));
+  const [userRole, setUserRole] = useState<'volunteer' | 'expert' | 'admin'>('volunteer');
   const [userName, setUserName] = useState<string>('');
+  const [userEmail, setUserEmail] = useState<string>('');
 
   useEffect(() => {
-    const fetchUserRole = async () => {
-      try {
-        const user = auth.currentUser;
-        if (!user) return;
+    loadUserData();
+  }, []);
 
-        const userDoc = await getDoc(doc(db, 'users', user.uid));
-        const userData = userDoc.data() || {};
-
-        // Determine role
-        if (userData.isAdmin) {
-          setRole('admin');
-        } else if (userData.isExpert) {
-          setRole('expert');
-        } else {
-          setRole('volunteer');
-        }
-
-        // Get user name
-        const firstName = userData.firstName || userData.firstname || '';
-        const lastName = userData.lastName || userData.lastname || '';
-        setUserName(`${firstName} ${lastName}`.trim() || user.email || 'User');
-      } catch (error) {
-        console.error('Error fetching user role:', error);
-      }
-    };
-
+  useEffect(() => {
     if (isVisible) {
-      fetchUserRole();
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true,
+      }).start();
+    } else {
+      Animated.timing(slideAnim, {
+        toValue: width,
+        duration: 300,
+        useNativeDriver: true,
+      }).start();
     }
   }, [isVisible]);
 
-  const getMenuItems = (): MenuItem[] => {
-    switch (role) {
-      case 'admin':
-        return adminMenuItems;
-      case 'expert':
-        return expertMenuItems;
-      default:
-        return volunteerMenuItems;
+  const loadUserData = async () => {
+    try {
+      const user = auth.currentUser;
+      if (!user) return;
+
+      setUserEmail(user.email || '');
+      
+      const userDoc = await getDoc(doc(db, 'users', user.uid));
+      if (userDoc.exists()) {
+        const data = userDoc.data();
+        const firstName = data.firstName || data.firstname || '';
+        const lastName = data.lastName || data.lastname || '';
+        setUserName(`${firstName} ${lastName}`.trim() || 'User');
+        
+        // Check both role field (string) and boolean fields for compatibility
+        const userRoleStr = data.role?.toLowerCase() || '';
+        const isAdmin = data.isAdmin === true || userRoleStr === 'admin';
+        const isExpert = data.isExpert === true || userRoleStr === 'expert';
+        
+        if (isAdmin) {
+          setUserRole('admin');
+        } else if (isExpert) {
+          setUserRole('expert');
+        } else {
+          setUserRole('volunteer');
+        }
+      }
+    } catch (error) {
+      console.error('Error loading user data:', error);
     }
   };
 
+  const getHomeRoute = () => {
+    switch (userRole) {
+      case 'admin': return './adminHomeScreen';
+      case 'expert': return './expertHomeScreen';
+      default: return './volunteerHomeScreen';
+    }
+  };
+
+  const menuItems: MenuItem[] = [
+    { icon: 'home', label: 'Home', route: getHomeRoute() },
+    { icon: 'radio-button-on', label: 'Recording', route: './recordScreen', roles: ['volunteer', 'expert'] },
+    { icon: 'bookmark', label: 'History', route: './historyScreen', roles: ['volunteer', 'expert'] },
+    { icon: 'map', label: 'Map', route: './mapHistoryScreen', roles: ['volunteer', 'expert'] },
+    { icon: 'time', label: 'Review Queue', route: './expert', roles: ['expert', 'admin'] },
+    { icon: 'people', label: 'Users', route: './usersScreen', roles: ['admin'] },
+    { icon: 'person-circle', label: 'Profile', route: './profileScreen' },
+    { icon: 'settings', label: 'Settings', route: './settingsScreen' },
+  ];
+
+  const filteredMenuItems = menuItems.filter(item => {
+    if (!item.roles) return true;
+    return item.roles.includes(userRole);
+  });
+
   const handleNavigation = (route: string) => {
     onClose();
-    router.push(route as any);
+    setTimeout(() => {
+      router.push(route as any);
+    }, 100);
   };
 
   const handleLogout = () => {
@@ -120,7 +133,7 @@ export default function NavigationMenu({ isVisible, onClose }: NavigationMenuPro
             try {
               await signOut(auth);
               onClose();
-              router.replace('/');
+              router.replace('./landingScreen');
             } catch (error) {
               console.error('Error logging out:', error);
               Alert.alert('Error', 'Failed to logout');
@@ -132,46 +145,60 @@ export default function NavigationMenu({ isVisible, onClose }: NavigationMenuPro
   };
 
   const getRoleBadgeColor = () => {
-    switch (role) {
-      case 'admin':
-        return '#FF6B6B';
-      case 'expert':
-        return '#4ECDC4';
-      default:
-        return '#d4ff00';
+    switch (userRole) {
+      case 'admin': return '#FF6B6B';
+      case 'expert': return '#4db8e8';
+      default: return '#4CAF50';
+    }
+  };
+
+  const getRoleLabel = () => {
+    switch (userRole) {
+      case 'admin': return 'Admin';
+      case 'expert': return 'Expert';
+      default: return 'Volunteer';
     }
   };
 
   return (
     <Modal
       visible={isVisible}
-      animationType="slide"
       transparent
+      animationType="none"
       onRequestClose={onClose}
     >
-      <View style={styles.modalOverlay}>
-        <View style={styles.menuContainer}>
-          {/* Header */}
-          <View style={styles.menuHeader}>
-            <View style={styles.userInfo}>
-              <View style={styles.avatarContainer}>
-                <Ionicons name="person-circle" size={50} color="#d4ff00" />
-              </View>
-              <View style={styles.userDetails}>
-                <Text style={styles.userName}>{userName}</Text>
-                <View style={[styles.roleBadge, { backgroundColor: getRoleBadgeColor() }]}>
-                  <Text style={styles.roleText}>{role.charAt(0).toUpperCase() + role.slice(1)}</Text>
-                </View>
-              </View>
-            </View>
+      <View style={styles.overlay}>
+        <TouchableOpacity style={styles.overlayTouch} onPress={onClose} activeOpacity={1} />
+        
+        <Animated.View
+          style={[
+            styles.menuContainer,
+            { transform: [{ translateX: slideAnim }] },
+          ]}
+        >
+          {/* Header with user info */}
+          <View style={styles.header}>
             <TouchableOpacity onPress={onClose} style={styles.closeButton}>
               <Ionicons name="close" size={28} color="#fff" />
             </TouchableOpacity>
+            
+            <View style={styles.userInfo}>
+              <View style={styles.avatarContainer}>
+                <Ionicons name="person" size={40} color="#d4ff00" />
+              </View>
+              <View style={styles.userDetails}>
+                <Text style={styles.userName} numberOfLines={1}>{userName}</Text>
+                <Text style={styles.userEmail} numberOfLines={1}>{userEmail}</Text>
+                <View style={[styles.roleBadge, { backgroundColor: getRoleBadgeColor() }]}>
+                  <Text style={styles.roleText}>{getRoleLabel()}</Text>
+                </View>
+              </View>
+            </View>
           </View>
 
           {/* Menu Items */}
           <View style={styles.menuItems}>
-            {getMenuItems().map((item, index) => (
+            {filteredMenuItems.map((item, index) => (
               <TouchableOpacity
                 key={index}
                 style={styles.menuItem}
@@ -179,50 +206,68 @@ export default function NavigationMenu({ isVisible, onClose }: NavigationMenuPro
               >
                 <Ionicons name={item.icon} size={24} color="#d4ff00" />
                 <Text style={styles.menuItemText}>{item.label}</Text>
-                <Ionicons name="chevron-forward" size={20} color="#666" />
+                <Ionicons name="chevron-forward" size={20} color="#888" />
               </TouchableOpacity>
             ))}
           </View>
 
           {/* Logout Button */}
-          <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-            <Ionicons name="log-out-outline" size={24} color="#FF6B6B" />
-            <Text style={styles.logoutText}>Logout</Text>
-          </TouchableOpacity>
-        </View>
+          <View style={styles.footer}>
+            <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+              <Ionicons name="log-out-outline" size={24} color="#FF6B6B" />
+              <Text style={styles.logoutText}>Logout</Text>
+            </TouchableOpacity>
+          </View>
+        </Animated.View>
       </View>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  modalOverlay: {
+  overlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-end',
+    flexDirection: 'row',
+  },
+  overlayTouch: {
+    flex: 1,
   },
   menuContainer: {
+    width: width * 0.8,
+    maxWidth: 320,
     backgroundColor: '#2d3e34',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingBottom: 40,
-    maxHeight: '80%',
+    height: '100%',
+    shadowColor: '#000',
+    shadowOffset: { width: -2, height: 0 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    elevation: 10,
   },
-  menuHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 20,
+  header: {
+    paddingTop: 60,
+    paddingHorizontal: 20,
+    paddingBottom: 20,
     borderBottomWidth: 1,
-    borderBottomColor: '#3d4f44',
+    borderBottomColor: 'rgba(212, 255, 0, 0.2)',
+  },
+  closeButton: {
+    alignSelf: 'flex-end',
+    padding: 8,
+    marginBottom: 16,
   },
   userInfo: {
     flexDirection: 'row',
     alignItems: 'center',
-    flex: 1,
   },
   avatarContainer: {
-    marginRight: 12,
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    backgroundColor: 'rgba(212, 255, 0, 0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 16,
   },
   userDetails: {
     flex: 1,
@@ -233,58 +278,54 @@ const styles = StyleSheet.create({
     color: '#fff',
     marginBottom: 4,
   },
+  userEmail: {
+    fontSize: 13,
+    color: '#aaa',
+    marginBottom: 8,
+  },
   roleBadge: {
-    paddingHorizontal: 10,
+    alignSelf: 'flex-start',
+    paddingHorizontal: 12,
     paddingVertical: 4,
     borderRadius: 12,
-    alignSelf: 'flex-start',
   },
   roleText: {
     fontSize: 12,
-    fontWeight: '600',
-    color: '#2d3e34',
-  },
-  closeButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    alignItems: 'center',
-    justifyContent: 'center',
+    fontWeight: '700',
+    color: '#fff',
   },
   menuItems: {
-    paddingHorizontal: 20,
-    paddingTop: 10,
+    flex: 1,
+    paddingVertical: 20,
   },
   menuItem: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#3d4f44',
+    paddingHorizontal: 20,
   },
   menuItemText: {
     flex: 1,
     fontSize: 16,
+    fontWeight: '500',
     color: '#fff',
     marginLeft: 16,
+  },
+  footer: {
+    paddingHorizontal: 20,
+    paddingBottom: 40,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(212, 255, 0, 0.2)',
   },
   logoutButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    marginHorizontal: 20,
-    marginTop: 20,
-    paddingVertical: 14,
-    backgroundColor: 'rgba(255, 107, 107, 0.1)',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#FF6B6B',
+    paddingVertical: 16,
   },
   logoutText: {
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '500',
     color: '#FF6B6B',
-    marginLeft: 8,
+    marginLeft: 16,
   },
 });

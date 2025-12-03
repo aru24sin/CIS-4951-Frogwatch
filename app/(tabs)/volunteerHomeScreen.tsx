@@ -1,16 +1,18 @@
 // volunteerHomeScreen.tsx
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { onAuthStateChanged } from "firebase/auth";
+import { onAuthStateChanged, signOut } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import React, { useEffect, useState } from "react";
-import { ImageBackground, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Alert, ImageBackground, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import NavigationMenu from "../../components/NavigationMenu";
 import { auth, db } from "../firebaseConfig";
 
 export default function VolunteerHomeScreen() {
   const router = useRouter();
   const [firstName, setFirstName] = useState<string | null>(null);
   const [lastName, setLastName] = useState<string | null>(null);
+  const [menuVisible, setMenuVisible] = useState(false);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (user) => {
@@ -52,6 +54,29 @@ export default function VolunteerHomeScreen() {
   const today = new Date();
   const formattedDate = today.toLocaleDateString("en-US", { weekday: "long", day: "numeric", month: "long" });
 
+  const handleLogout = () => {
+    Alert.alert(
+      'Logout',
+      'Are you sure you want to logout?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Logout',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await signOut(auth);
+              router.replace('./landingScreen');
+            } catch (error) {
+              console.error('Error logging out:', error);
+              Alert.alert('Error', 'Failed to logout');
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const buttons = [
     {
       icon: "radio-button-on" as const,
@@ -71,7 +96,7 @@ export default function VolunteerHomeScreen() {
     {
       icon: "person-circle" as const,
       label: "Profile",
-      route: "./settingsScreen",
+      route: "./profileScreen",
     },
     {
       icon: "settings" as const,
@@ -82,11 +107,26 @@ export default function VolunteerHomeScreen() {
 
   return (
     <ImageBackground source={require("../../assets/images/homeBackground.png")} style={styles.background} resizeMode="cover">
+      <NavigationMenu isVisible={menuVisible} onClose={() => setMenuVisible(false)} />
+      
       <ScrollView contentContainerStyle={styles.scrollContainer} showsVerticalScrollIndicator={false}>
         <View style={styles.overlay}>
+          {/* Header with logout and menu buttons */}
+          <View style={styles.header}>
+            <TouchableOpacity onPress={handleLogout} style={styles.iconButton}>
+              <Ionicons name="log-out-outline" size={24} color="#fff" />
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setMenuVisible(true)} style={styles.iconButton}>
+              <Ionicons name="menu" size={28} color="#fff" />
+            </TouchableOpacity>
+          </View>
+
           <View>
             <Text style={styles.hello}>Hello{fullName ? `, ${fullName}` : ","}</Text>
             <Text style={styles.date}>{formattedDate}</Text>
+            <View style={styles.roleBadge}>
+              <Text style={styles.roleText}>Volunteer</Text>
+            </View>
           </View>
 
           <View style={styles.bottomSection}>
@@ -126,10 +166,40 @@ export default function VolunteerHomeScreen() {
 const styles = StyleSheet.create({
   background: { flex: 1, width: "100%", height: "100%" },
   scrollContainer: { flexGrow: 1 },
-  overlay: { flex: 1, paddingTop: 60, paddingHorizontal: 24, paddingBottom: 40, justifyContent: "space-between" },
+  overlay: { flex: 1, paddingTop: 50, paddingHorizontal: 24, paddingBottom: 40, justifyContent: "space-between" },
+  
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  iconButton: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 
-  hello: { marginTop: 20, fontSize: 32, fontWeight: "400", color: "#f2f2f2ff" },
-  date: { fontSize: 32, fontWeight: "500", color: "#ccff00", marginBottom: 12 },
+  hello: { marginTop: 10, fontSize: 32, fontWeight: "400", color: "#f2f2f2ff" },
+  date: { fontSize: 32, fontWeight: "500", color: "#ccff00", marginBottom: 8 },
+  
+  roleBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#4CAF50',
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    borderRadius: 16,
+    marginTop: 4,
+    marginBottom: 300,
+  },
+  roleText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#fff',
+  },
 
   bottomSection: { marginTop: 20 },
   status: { fontSize: 18, color: "#ffffffff", marginBottom: 20 },

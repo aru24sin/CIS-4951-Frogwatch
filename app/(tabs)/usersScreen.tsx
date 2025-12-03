@@ -78,8 +78,13 @@ const getHomeScreen = async (): Promise<string> => {
     const userDoc = await getDoc(doc(db, 'users', user.uid));
     const userData = userDoc.data() || {};
     
-    if (userData.isAdmin) return './adminHomeScreen';
-    if (userData.isExpert) return './expertHomeScreen';
+    // Check both role field (string) and boolean fields for compatibility
+    const roleStr = (userData.role || '').toString().toLowerCase();
+    const isAdmin = userData.isAdmin === true || roleStr === 'admin';
+    const isExpert = userData.isExpert === true || roleStr === 'expert';
+    
+    if (isAdmin) return './adminHomeScreen';
+    if (isExpert) return './expertHomeScreen';
     return './volunteerHomeScreen';
   } catch {
     return './adminHomeScreen';
@@ -116,12 +121,18 @@ export default function UsersScreen() {
         const userDoc = await getDoc(doc(db, 'users', user.uid));
         if (userDoc.exists()) {
           const userData = userDoc.data();
-          setIsAdmin(userData.isAdmin || false);
           
-          if (!userData.isAdmin) {
+          // Check both role field (string) and boolean fields for compatibility
+          const roleStr = (userData.role || '').toString().toLowerCase();
+          const userIsAdmin = userData.isAdmin === true || roleStr === 'admin';
+          const userIsExpert = userData.isExpert === true || roleStr === 'expert';
+          
+          setIsAdmin(userIsAdmin);
+          
+          if (!userIsAdmin) {
             Alert.alert('Access Denied', 'You do not have admin privileges');
             // Navigate to appropriate home screen
-            if (userData.isExpert) {
+            if (userIsExpert) {
               router.push('./expertHomeScreen');
             } else {
               router.push('./volunteerHomeScreen');
@@ -157,6 +168,10 @@ export default function UsersScreen() {
         );
         const recordingsSnapshot = await getDocs(recordingsQuery);
 
+        // Check both role field (string) and boolean fields for compatibility
+        const roleStr = (userData.role || '').toString().toLowerCase();
+        const userIsExpert = userData.isExpert === true || roleStr === 'expert';
+
         usersData.push({
           userId: userDoc.id,
           firstName: userData.firstName || '',
@@ -164,7 +179,7 @@ export default function UsersScreen() {
           username: userData.username || '',
           email: userData.email || '',
           location: userData.location || '',
-          isExpert: userData.isExpert || false,
+          isExpert: userIsExpert,
           isPendingExpert: userData.isPendingExpert || false,
           submissionCount: recordingsSnapshot.size,
           avatarColor: avatarColors[Math.floor(Math.random() * avatarColors.length)],
@@ -333,7 +348,7 @@ export default function UsersScreen() {
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.push(homeScreen as any)} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={28} color="#2d3e34" />
+          <Ionicons name="arrow-back" size={28} color="#fff" />
         </TouchableOpacity>
 
         <View>
@@ -342,7 +357,7 @@ export default function UsersScreen() {
         </View>
 
         <TouchableOpacity onPress={() => setMenuVisible(true)} style={styles.menuButton}>
-          <Ionicons name="menu" size={28} color="#2d3e34" />
+          <Ionicons name="menu" size={28} color="#fff" />
         </TouchableOpacity>
       </View>
 
@@ -549,7 +564,7 @@ const styles = StyleSheet.create({
     width: 50,
     height: 50,
     borderRadius: 25,
-    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    backgroundColor: 'rgba(0, 0, 0, 0.2)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -569,7 +584,7 @@ const styles = StyleSheet.create({
     width: 50,
     height: 50,
     borderRadius: 25,
-    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    backgroundColor: 'rgba(0, 0, 0, 0.2)',
     alignItems: 'center',
     justifyContent: 'center',
   },

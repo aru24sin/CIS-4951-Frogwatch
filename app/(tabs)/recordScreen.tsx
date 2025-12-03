@@ -31,8 +31,13 @@ const getHomeScreen = async (): Promise<string> => {
     const userDoc = await getDoc(doc(db, 'users', user.uid));
     const userData = userDoc.data() || {};
     
-    if (userData.isAdmin) return './adminHomeScreen';
-    if (userData.isExpert) return './expertHomeScreen';
+    // Check both role field (string) and boolean fields for compatibility
+    const roleStr = (userData.role || '').toString().toLowerCase();
+    const isAdmin = userData.isAdmin === true || roleStr === 'admin';
+    const isExpert = userData.isExpert === true || roleStr === 'expert';
+    
+    if (isAdmin) return './adminHomeScreen';
+    if (isExpert) return './expertHomeScreen';
     return './volunteerHomeScreen';
   } catch {
     return './volunteerHomeScreen';

@@ -45,10 +45,17 @@ export default function LoginScreen() {
       const userDoc = await getDoc(doc(db, "users", cred.user.uid));
       const userData = userDoc.data() || {};
       
+      console.log('User data:', userData); // Debug log
+      
       // Route to appropriate home screen based on role
-      if (userData.isAdmin) {
+      // Check both role field (string) and boolean fields for compatibility
+      const userRole = userData.role?.toLowerCase() || '';
+      const isAdmin = userData.isAdmin === true || userRole === 'admin';
+      const isExpert = userData.isExpert === true || userRole === 'expert';
+      
+      if (isAdmin) {
         router.replace('./adminHomeScreen');
-      } else if (userData.isExpert) {
+      } else if (isExpert) {
         router.replace('./expertHomeScreen');
       } else {
         router.replace('./volunteerHomeScreen');

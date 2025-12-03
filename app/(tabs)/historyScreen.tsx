@@ -2,10 +2,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
 import { Audio } from 'expo-av';
+import { useRouter } from 'expo-router';
 import { onAuthStateChanged } from 'firebase/auth';
 import {
-  collection, doc, DocumentData,
-  onSnapshot, query, Timestamp, updateDoc, where
+  collection, doc, DocumentData, getDoc, onSnapshot, query, Timestamp, updateDoc, where
 } from 'firebase/firestore';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
@@ -63,16 +63,34 @@ const speciesOptions = [
   'Midland Chorus Frog'
 ];
 
+// Helper function to get the correct home screen based on user role
+const getHomeScreen = async (): Promise<string> => {
+  try {
+    const user = auth.currentUser;
+    if (!user) return './volunteerHomeScreen';
+    
+    const userDoc = await getDoc(doc(db, 'users', user.uid));
+    const userData = userDoc.data() || {};
+    
+    // Check both role field (string) and boolean fields for compatibility
+    const roleStr = (userData.role || '').toString().toLowerCase();
+    const isAdmin = userData.isAdmin === true || roleStr === 'admin';
+    const isExpert = userData.isExpert === true || roleStr === 'expert';
+    
+    if (isAdmin) return './adminHomeScreen';
+    if (isExpert) return './expertHomeScreen';
+    return './volunteerHomeScreen';
+  } catch {
+    return './volunteerHomeScreen';
+  }
+};
+
 function pickDevHost() {
   const url: string | undefined = (NativeModules as any)?.SourceCode?.scriptURL;
   const m = url?.match(/\/\/([^/:]+):\d+/);
   return m?.[1] ?? 'localhost';
 }
-//const API_BASE = __DEV__ ? `http://${pickDevHost()}:8000` : 'https://your-production-domain';
-const API_BASE =
-  process.env.EXPO_PUBLIC_API_BASE_URL ??
-  (__DEV__ ? `http://${pickDevHost()}:8000` : 'https://frogwatch-backend-1066546787031.us-central1.run.app');
-
+const API_BASE = __DEV__ ? `http://${pickDevHost()}:8000` : 'https://your-production-domain';
 
 function resolveAudioURL(d: any): string | undefined {
   const filePath = d?.filePath || (d?.fileName ? `uploaded_audios/${d.fileName}` : undefined);
@@ -103,6 +121,7 @@ async function getCityFromCoords(lat: number, lon: number): Promise<string> {
 }
 
 export default function HistoryScreen() {
+  const router = useRouter();
   const [recordings, setRecordings] = useState<Recording[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorText, setErrorText] = useState<string | null>(null);
@@ -115,6 +134,13 @@ export default function HistoryScreen() {
   const [editNotes, setEditNotes] = useState('');
   const [menuVisible, setMenuVisible] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [homeScreen, setHomeScreen] = useState<string>('./volunteerHomeScreen');
+  const [playingId, setPlayingId] = useState<string | null>(null);
+
+  // Determine the correct home screen on mount
+  useEffect(() => {
+    getHomeScreen().then(setHomeScreen);
+  }, []);
 
   useEffect(() => {
     let offAuth: (() => void) | undefined;
@@ -189,15 +215,31 @@ export default function HistoryScreen() {
     };
   }, [sound]);
 
-  const handlePlay = async (uri?: string) => {
+  const handlePlay = async (uri?: string, recordingId?: string) => {
     if (!uri) return;
     try {
       if (sound) {
         await sound.unloadAsync();
         setSound(null);
+        setPlayingId(null);
       }
+      
+      if (playingId === recordingId) {
+        // Was playing this one, now stopped
+        return;
+      }
+      
       const { sound: newSound } = await Audio.Sound.createAsync({ uri });
       setSound(newSound);
+      setPlayingId(recordingId || null);
+      
+      newSound.setOnPlaybackStatusUpdate((status) => {
+        if (!status.isLoaded) return;
+        if (status.didJustFinish) {
+          setPlayingId(null);
+        }
+      });
+      
       await newSound.playAsync();
     } catch (e) {
       console.error('Audio play error:', e);
@@ -290,11 +332,33 @@ export default function HistoryScreen() {
     );
   }, [recordings, searchQuery]);
 
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case 'approved':
+        return <Ionicons name="checkmark-circle" size={24} color="#6ee96e" />;
+      case 'needs_review':
+        return <Ionicons name="time" size={24} color="#f5a623" />;
+      case 'discarded':
+        return <Ionicons name="close-circle" size={24} color="#FF6B6B" />;
+      default:
+        return <Ionicons name="cloud-upload" size={24} color="#4db8e8" />;
+    }
+  };
+
+  const getStatusLabel = (status: string) => {
+    switch (status) {
+      case 'approved': return 'Approved';
+      case 'needs_review': return 'Pending Review';
+      case 'discarded': return 'Discarded';
+      default: return 'Processing';
+    }
+  };
+
   const renderItem = ({ item }: { item: Recording }) => {
     const img = speciesImageMap[item.predictedSpecies] || placeholderImage;
     const isExpanded = expandedId === item.recordingId;
     const isEditing = editMode === item.recordingId;
-    const isApproved = item.status === 'approved';
+    const isPlaying = playingId === item.recordingId;
 
     return (
       <View style={styles.itemContainer}>
@@ -305,11 +369,7 @@ export default function HistoryScreen() {
                 <Text style={styles.speciesTagText}>Frog Spec #{item.recordingNumber}</Text>
               </View>
               <View style={styles.statusIcon}>
-                {isApproved ? (
-                  <Ionicons name="checkmark-circle" size={24} color="#6ee96e" />
-                ) : (
-                  <Ionicons name="cloud-upload" size={24} color="#4db8e8" />
-                )}
+                {getStatusIcon(item.status)}
               </View>
               <Text style={styles.locationText}>{item.locationCity}</Text>
             </View>
@@ -386,15 +446,34 @@ export default function HistoryScreen() {
               </>
             )}
 
-            {/* Waveform placeholder */}
-            <View style={styles.waveformPlaceholder} />
+            {/* Audio Waveform Visualization Placeholder */}
+            <View style={styles.waveformContainer}>
+              <View style={styles.waveformBars}>
+                {[...Array(20)].map((_, i) => (
+                  <View 
+                    key={i} 
+                    style={[
+                      styles.waveformBar, 
+                      { height: Math.random() * 30 + 10, opacity: isPlaying ? 1 : 0.5 }
+                    ]} 
+                  />
+                ))}
+              </View>
+            </View>
 
             <View style={styles.actionButtons}>
               <TouchableOpacity
-                style={styles.playButton}
-                onPress={() => handlePlay(item.audioURL)}
+                style={[styles.playButton, isPlaying && styles.playButtonActive]}
+                onPress={() => handlePlay(item.audioURL, item.recordingId)}
               >
-                <Text style={styles.playButtonText}>play</Text>
+                <Ionicons 
+                  name={isPlaying ? "pause" : "play"} 
+                  size={18} 
+                  color={isPlaying ? "#2d3e34" : "#fff"} 
+                />
+                <Text style={[styles.playButtonText, isPlaying && styles.playButtonTextActive]}>
+                  {isPlaying ? 'pause' : 'play'}
+                </Text>
               </TouchableOpacity>
               {isEditing ? (
                 <TouchableOpacity
@@ -418,11 +497,7 @@ export default function HistoryScreen() {
 
             <View style={styles.uploaderInfo}>
               <Text style={styles.uploaderName}>{item.submitterName}</Text>
-              <Text style={styles.uploadStatus}>
-                {item.status === 'approved' ? 'Approved' : 
-                 item.status === 'needs_review' ? 'Pending Review' : 
-                 item.status}
-              </Text>
+              <Text style={styles.uploadStatus}>{getStatusLabel(item.status)}</Text>
             </View>
           </View>
         )}
@@ -443,6 +518,9 @@ export default function HistoryScreen() {
       <NavigationMenu isVisible={menuVisible} onClose={() => setMenuVisible(false)} />
       {/* Header */}
       <View style={styles.header}>
+        <TouchableOpacity onPress={() => router.push(homeScreen as any)} style={styles.backButton}>
+          <Ionicons name="arrow-back" size={28} color="#fff" />
+        </TouchableOpacity>
         <View>
           <Text style={styles.headerTitle}>History</Text>
           <View style={styles.titleUnderline} />
@@ -491,22 +569,31 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     paddingHorizontal: 20,
     paddingTop: 60,
     marginBottom: 20,
   },
+  backButton: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: 'rgba(0, 0, 0, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   headerTitle: {
-    fontSize: 48,
+    fontSize: 32,
     fontWeight: '400',
     color: '#fff',
   },
   titleUnderline: {
-    width: 160,
+    width: 100,
     height: 4,
     borderRadius: 2,
     backgroundColor: '#d4ff00',
     marginTop: 4,
+    alignSelf: 'center',
   },
   menuButton: {
     width: 50,
@@ -612,16 +699,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#d4ff00',
   },
-  dropdownPlaceholder: {
-    backgroundColor: '#3d4f44',
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 12,
-  },
-  dropdownText: {
-    fontSize: 16,
-    color: '#fff',
-  },
   pickerContainer: {
     backgroundColor: '#fff',
     borderRadius: 12,
@@ -674,7 +751,7 @@ const styles = StyleSheet.create({
   },
   notesBox: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.2)',
+    backgroundColor: '#3d4f44',
     borderWidth: 2,
     borderColor: '#d4ff00',
     borderRadius: 12,
@@ -700,11 +777,25 @@ const styles = StyleSheet.create({
     height: 80,
     textAlignVertical: 'top',
   },
-  waveformPlaceholder: {
+  waveformContainer: {
     height: 60,
-    backgroundColor: '#1a252a',
+    backgroundColor: '#3d4f44',
     borderRadius: 12,
     marginBottom: 12,
+    overflow: 'hidden',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  waveformBars: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 16,
+  },
+  waveformBar: {
+    width: 4,
+    backgroundColor: '#d4ff00',
+    borderRadius: 2,
   },
   actionButtons: {
     flexDirection: 'row',
@@ -716,12 +807,21 @@ const styles = StyleSheet.create({
     backgroundColor: '#3d4f44',
     borderRadius: 12,
     paddingVertical: 14,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  playButtonActive: {
+    backgroundColor: '#d4ff00',
   },
   playButtonText: {
     fontSize: 16,
     color: '#fff',
     fontWeight: '500',
+  },
+  playButtonTextActive: {
+    color: '#2d3e34',
   },
   resubmitButton: {
     flex: 1,

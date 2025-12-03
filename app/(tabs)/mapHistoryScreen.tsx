@@ -74,11 +74,7 @@ function pickDevHost() {
   const m = scriptURL?.match(/\/\/([^/:]+):\d+/);
   return m?.[1] ?? 'localhost';
 }
-//const API_BASE = __DEV__ ? `http://${pickDevHost()}:8000` : 'https://your-production-domain';
-const API_BASE =
-  process.env.EXPO_PUBLIC_API_BASE_URL ??
-  (__DEV__ ? `http://${pickDevHost()}:8000` : 'https://frogwatch-backend-1066546787031.us-central1.run.app');
-
+const API_BASE = __DEV__ ? `http://${pickDevHost()}:8000` : 'https://your-production-domain';
 
 function resolveAudioURL(d: any): string | undefined {
   const filePath = d?.filePath || (d?.fileName ? `uploaded_audios/${d.fileName}` : undefined);
@@ -117,8 +113,13 @@ const getHomeScreen = async (): Promise<string> => {
     const userDoc = await getDoc(doc(db, 'users', user.uid));
     const userData = userDoc.data() || {};
     
-    if (userData.isAdmin) return './adminHomeScreen';
-    if (userData.isExpert) return './expertHomeScreen';
+    // Check both role field (string) and boolean fields for compatibility
+    const roleStr = (userData.role || '').toString().toLowerCase();
+    const isAdmin = userData.isAdmin === true || roleStr === 'admin';
+    const isExpert = userData.isExpert === true || roleStr === 'expert';
+    
+    if (isAdmin) return './adminHomeScreen';
+    if (isExpert) return './expertHomeScreen';
     return './volunteerHomeScreen';
   } catch {
     return './volunteerHomeScreen';

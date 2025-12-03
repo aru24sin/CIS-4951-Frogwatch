@@ -1,16 +1,23 @@
 // adminHomeScreen.tsx
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { onAuthStateChanged } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
+import { onAuthStateChanged, signOut } from "firebase/auth";
+import { collection, doc, getCountFromServer, getDoc, query, where } from "firebase/firestore";
 import React, { useEffect, useState } from "react";
-import { ImageBackground, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Alert, ImageBackground, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import NavigationMenu from "../../components/NavigationMenu";
 import { auth, db } from "../firebaseConfig";
 
 export default function AdminHomeScreen() {
   const router = useRouter();
   const [firstName, setFirstName] = useState<string | null>(null);
   const [lastName, setLastName] = useState<string | null>(null);
+  const [menuVisible, setMenuVisible] = useState(false);
+  const [stats, setStats] = useState({
+    totalUsers: 0,
+    pendingReviews: 0,
+    pendingExperts: 0,
+  });
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (user) => {
@@ -37,6 +44,21 @@ export default function AdminHomeScreen() {
           setFirstName(local ? local : null);
           setLastName(null);
         }
+
+        // Load stats
+        const rec = collection(db, 'recordings');
+        const usersCol = collection(db, 'users');
+        
+        const [pendingReviews, pendingExperts] = await Promise.all([
+          getCountFromServer(query(rec, where('status', '==', 'needs_review'))),
+          getCountFromServer(query(usersCol, where('isPendingExpert', '==', true))),
+        ]);
+        
+        setStats({
+          totalUsers: 0, // Would need to count all users
+          pendingReviews: pendingReviews.data().count || 0,
+          pendingExperts: pendingExperts.data().count || 0,
+        });
       } catch (e) {
         console.warn("Profile load failed:", e);
       }
@@ -52,11 +74,51 @@ export default function AdminHomeScreen() {
   const today = new Date();
   const formattedDate = today.toLocaleDateString("en-US", { weekday: "long", day: "numeric", month: "long" });
 
+  const handleLogout = () => {
+    Alert.alert(
+      'Logout',
+      'Are you sure you want to logout?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Logout',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await signOut(auth);
+              router.replace('./landingScreen');
+            } catch (error) {
+              console.error('Error logging out:', error);
+              Alert.alert('Error', 'Failed to logout');
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const buttons = [
     {
       icon: "people" as const,
       label: "Users",
       route: "./usersScreen",
+      badge: stats.pendingExperts > 0 ? stats.pendingExperts : undefined,
+    },
+    {
+      icon: "time" as const,
+      label: "Reviews",
+      route: "./expert",
+      badge: stats.pendingReviews > 0 ? stats.pendingReviews : undefined,
+    },
+    {
+      icon: "map" as const,
+      label: "Map",
+      route: "./mapHistoryScreen",
+    },
+    {
+      icon: "bookmark" as const,
+      label: "History",
+      route: "./historyScreen",
     },
     {
       icon: "person-circle" as const,
@@ -72,11 +134,39 @@ export default function AdminHomeScreen() {
 
   return (
     <ImageBackground source={require("../../assets/images/homeBackground.png")} style={styles.background} resizeMode="cover">
+      <NavigationMenu isVisible={menuVisible} onClose={() => setMenuVisible(false)} />
+      
       <ScrollView contentContainerStyle={styles.scrollContainer} showsVerticalScrollIndicator={false}>
         <View style={styles.overlay}>
+          {/* Header with logout and menu buttons */}
+          <View style={styles.header}>
+            <TouchableOpacity onPress={handleLogout} style={styles.iconButton}>
+              <Ionicons name="log-out-outline" size={24} color="#fff" />
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setMenuVisible(true)} style={styles.iconButton}>
+              <Ionicons name="menu" size={28} color="#fff" />
+            </TouchableOpacity>
+          </View>
+
           <View>
             <Text style={styles.hello}>Hello{fullName ? `, ${fullName}` : ","}</Text>
             <Text style={styles.date}>{formattedDate}</Text>
+            <View style={styles.roleBadge}>
+              <Ionicons name="shield" size={14} color="#fff" style={{ marginRight: 4 }} />
+              <Text style={styles.roleText}>Administrator</Text>
+            </View>
+          </View>
+
+          {/* Stats Cards */}
+          <View style={styles.statsContainer}>
+            <View style={styles.statCard}>
+              <Text style={styles.statNumber}>{stats.pendingReviews}</Text>
+              <Text style={styles.statLabel}>Pending Reviews</Text>
+            </View>
+            <View style={styles.statCard}>
+              <Text style={styles.statNumber}>{stats.pendingExperts}</Text>
+              <Text style={styles.statLabel}>Expert Requests</Text>
+            </View>
           </View>
 
           <View style={styles.bottomSection}>
@@ -91,7 +181,14 @@ export default function AdminHomeScreen() {
                   style={styles.button}
                   onPress={() => router.push(button.route as any)}
                 >
-                  <Ionicons name={button.icon} size={28} color="#ccff00" />
+                  <View style={styles.buttonContent}>
+                    <Ionicons name={button.icon} size={28} color="#ccff00" />
+                    {button.badge !== undefined && (
+                      <View style={styles.badge}>
+                        <Text style={styles.badgeText}>{button.badge > 99 ? '99+' : button.badge}</Text>
+                      </View>
+                    )}
+                  </View>
                   <Text style={styles.buttonText}>{button.label}</Text>
                 </TouchableOpacity>
               ))}
@@ -106,10 +203,67 @@ export default function AdminHomeScreen() {
 const styles = StyleSheet.create({
   background: { flex: 1, width: "100%", height: "100%" },
   scrollContainer: { flexGrow: 1 },
-  overlay: { flex: 1, paddingTop: 60, paddingHorizontal: 24, paddingBottom: 40, justifyContent: "space-between" },
+  overlay: { flex: 1, paddingTop: 50, paddingHorizontal: 24, paddingBottom: 40, justifyContent: "space-between" },
+  
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  iconButton: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 
-  hello: { marginTop: 20, fontSize: 32, fontWeight: "400", color: "#f2f2f2ff" },
-  date: { fontSize: 32, fontWeight: "500", color: "#ccff00", marginBottom: 12 },
+  hello: { marginTop: 10, fontSize: 32, fontWeight: "400", color: "#f2f2f2ff" },
+  date: { fontSize: 32, fontWeight: "500", color: "#ccff00", marginBottom: 8 },
+  
+  roleBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#FF6B6B',
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    borderRadius: 16,
+    marginTop: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 200,
+  },
+  roleText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#fff',
+  },
+
+  statsContainer: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 20,
+  },
+  statCard: {
+    flex: 1,
+    backgroundColor: 'rgba(47, 66, 51, 0.9)',
+    borderRadius: 16,
+    padding: 16,
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#d4ff00',
+  },
+  statNumber: {
+    fontSize: 28,
+    fontWeight: '700',
+    color: '#d4ff00',
+  },
+  statLabel: {
+    fontSize: 12,
+    color: '#fff',
+    marginTop: 4,
+  },
 
   bottomSection: { marginTop: 20 },
   status: { fontSize: 18, color: "#ffffffff", marginBottom: 20 },
@@ -123,5 +277,25 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  buttonText: { marginTop: 6, fontSize: 18, color: "#ffffffff" },
+  buttonContent: {
+    position: 'relative',
+  },
+  badge: {
+    position: 'absolute',
+    top: -8,
+    right: -12,
+    backgroundColor: '#FF6B6B',
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+  },
+  badgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#fff',
+  },
+  buttonText: { marginTop: 6, fontSize: 16, color: "#ffffffff" },
 });

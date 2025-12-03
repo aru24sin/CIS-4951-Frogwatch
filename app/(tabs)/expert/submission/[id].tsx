@@ -1,4 +1,5 @@
 // app/(tabs)/expert/submission/[id].tsx
+import { Ionicons } from '@expo/vector-icons';
 import { Audio } from 'expo-av';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
@@ -11,24 +12,44 @@ import {
 } from 'firebase/firestore';
 import { getDownloadURL, ref as storageRef } from 'firebase/storage';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Alert,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
+} from 'react-native';
+import NavigationMenu from '../../../../components/NavigationMenu';
 import { auth, db, storage } from '../../../firebaseConfig';
 
 type RecordingDoc = {
   userId: string;
   status: 'needs_review' | 'approved' | 'discarded';
   timestamp?: any;
-  // Audio path can be a direct URL or a Storage path like 'recordings/abc.m4a'
   audioUrl?: string;
   audioPath?: string;
-  // AI helper fields (your schema may use ai.species or predictedSpecies)
   ai?: { species?: string; confidence?: number };
   predictedSpecies?: string;
-  // Optional existing expert fields:
   expertSpecies?: string;
   expertConfidence?: number;
   notes?: string;
 };
+
+// Species options for the picker
+const speciesOptions = [
+  'Bullfrog',
+  'Green Frog',
+  'Northern Spring Peeper',
+  'Northern Leopard Frog',
+  'Eastern Gray Treefrog',
+  'Wood Frog',
+  'American Toad',
+  'Midland Chorus Frog'
+];
 
 export default function ExpertSubmissionDetails() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -36,13 +57,15 @@ export default function ExpertSubmissionDetails() {
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [menuVisible, setMenuVisible] = useState(false);
 
   const [record, setRecord] = useState<RecordingDoc | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
 
   const [species, setSpecies] = useState('');
-  const [confidenceStr, setConfidenceStr] = useState(''); // 0–100 as string for simple input
+  const [confidenceStr, setConfidenceStr] = useState('');
   const [notes, setNotes] = useState('');
+  const [showSpeciesPicker, setShowSpeciesPicker] = useState(false);
 
   const soundRef = useRef<Audio.Sound | null>(null);
   const [playing, setPlaying] = useState(false);
@@ -54,7 +77,6 @@ export default function ExpertSubmissionDetails() {
   const aiConfidencePct = useMemo(() => {
     const c = record?.ai?.confidence;
     if (typeof c === 'number' && !Number.isNaN(c)) {
-      // Assuming c is 0..1
       return Math.round(Math.max(0, Math.min(1, c)) * 100);
     }
     return null;
@@ -179,7 +201,7 @@ export default function ExpertSubmissionDetails() {
         ? null
         : Math.max(0, Math.min(100, confPct)) / 100;
 
-    // 1) Add a review event under subcollection
+    // Add a review event under subcollection
     await addDoc(collection(db, 'recordings', id, 'reviews'), {
       action,
       species: species?.trim() || null,
@@ -189,17 +211,15 @@ export default function ExpertSubmissionDetails() {
       createdAt: serverTimestamp(),
     });
 
-    // 2) Update the parent doc
+    // Update the parent doc
     const updates: any = {
       status: action,
       reviewedAt: serverTimestamp(),
       reviewedBy: reviewerId,
-      // Keep the latest expert choice on parent doc for quick querying
       expertSpecies: species?.trim() || null,
       expertConfidence: conf01,
       expertNotes: notes?.trim() || null,
     };
-    // If discarded, you might want to null out expertSpecies/confidence—here we keep values if provided.
     await updateDoc(doc(db, 'recordings', id), updates);
   }
 
@@ -239,157 +259,455 @@ export default function ExpertSubmissionDetails() {
 
   if (loading) {
     return (
-      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-        <ActivityIndicator />
-        <Text style={{ marginTop: 8, opacity: 0.7 }}>Loading submission…</Text>
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator color="#d4ff00" size="large" />
+        <Text style={styles.loadingText}>Loading submission…</Text>
       </View>
     );
   }
 
   if (!record) {
     return (
-      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-        <Text>Submission not found.</Text>
+      <View style={styles.loadingContainer}>
+        <Ionicons name="alert-circle" size={64} color="#FF6B6B" />
+        <Text style={styles.errorText}>Submission not found.</Text>
+        <TouchableOpacity style={styles.goBackButton} onPress={() => router.back()}>
+          <Text style={styles.goBackText}>Go Back</Text>
+        </TouchableOpacity>
       </View>
     );
   }
 
   return (
-    <ScrollView contentContainerStyle={{ padding: 16 }}>
-      <Text style={{ fontSize: 22, fontWeight: '700', marginBottom: 12 }}>Review Submission</Text>
-
-      {/* AI summary */}
-      <View style={{ borderWidth: 1, borderRadius: 12, padding: 12, marginBottom: 14 }}>
-        <Text style={{ fontWeight: '600' }}>AI suggestion</Text>
-        <Text style={{ marginTop: 4 }}>
-          Species: <Text style={{ fontWeight: '600' }}>{aiSpecies || '—'}</Text>
-        </Text>
-        <Text>
-          Confidence: <Text style={{ fontWeight: '600' }}>
-            {aiConfidencePct != null ? `${aiConfidencePct}%` : '—'}
-          </Text>
-        </Text>
-        <Text style={{ opacity: 0.7, marginTop: 4 }}>ID: {id}</Text>
+    <View style={styles.container}>
+      <NavigationMenu isVisible={menuVisible} onClose={() => setMenuVisible(false)} />
+      
+      {/* Header */}
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+          <Ionicons name="arrow-back" size={28} color="#fff" />
+        </TouchableOpacity>
+        <View>
+          <Text style={styles.headerTitle}>Review</Text>
+          <View style={styles.titleUnderline} />
+        </View>
+        <TouchableOpacity onPress={() => setMenuVisible(true)} style={styles.menuButton}>
+          <Ionicons name="menu" size={28} color="#fff" />
+        </TouchableOpacity>
       </View>
 
-      {/* Audio controls */}
-      <View style={{ borderWidth: 1, borderRadius: 12, padding: 12, marginBottom: 14 }}>
-        <Text style={{ fontWeight: '600', marginBottom: 8 }}>Audio</Text>
-        {audioUrl ? (
-          <Pressable
-            onPress={loadAndPlay}
-            style={{
-              padding: 12,
-              borderWidth: 1,
-              borderRadius: 10,
-              alignSelf: 'flex-start',
-              opacity: saving ? 0.5 : 1,
-            }}
-            disabled={saving}
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        {/* AI Summary Card */}
+        <View style={styles.aiCard}>
+          <View style={styles.aiHeader}>
+            <Ionicons name="sparkles" size={20} color="#d4ff00" />
+            <Text style={styles.aiHeaderText}>AI Suggestion</Text>
+          </View>
+          <View style={styles.aiContent}>
+            <View style={styles.aiRow}>
+              <Text style={styles.aiLabel}>Species</Text>
+              <Text style={styles.aiValue}>{aiSpecies || '—'}</Text>
+            </View>
+            <View style={styles.aiRow}>
+              <Text style={styles.aiLabel}>Confidence</Text>
+              <Text style={styles.aiValue}>
+                {aiConfidencePct != null ? `${aiConfidencePct}%` : '—'}
+              </Text>
+            </View>
+          </View>
+          <Text style={styles.recordingId}>ID: {id}</Text>
+        </View>
+
+        {/* Audio Player */}
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Audio Recording</Text>
+          {audioUrl ? (
+            <View style={styles.audioPlayer}>
+              {/* Waveform Visualization */}
+              <View style={styles.waveformContainer}>
+                {[...Array(25)].map((_, i) => (
+                  <View 
+                    key={i} 
+                    style={[
+                      styles.waveformBar, 
+                      { height: Math.random() * 40 + 10, opacity: playing ? 1 : 0.5 }
+                    ]} 
+                  />
+                ))}
+              </View>
+              <Pressable
+                onPress={loadAndPlay}
+                style={[styles.playButton, playing && styles.playButtonActive]}
+                disabled={saving}
+              >
+                <Ionicons 
+                  name={playing ? 'pause' : 'play'} 
+                  size={24} 
+                  color={playing ? '#2d3e34' : '#fff'} 
+                />
+                <Text style={[styles.playButtonText, playing && styles.playButtonTextActive]}>
+                  {playing ? 'Pause' : 'Play'}
+                </Text>
+              </Pressable>
+            </View>
+          ) : (
+            <Text style={styles.noAudioText}>No audio URL available.</Text>
+          )}
+        </View>
+
+        {/* Species Selection */}
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Species (required)</Text>
+          <TouchableOpacity 
+            style={styles.selectInput}
+            onPress={() => setShowSpeciesPicker(!showSpeciesPicker)}
           >
-            <Text>{playing ? 'Pause' : 'Play'}</Text>
+            <Text style={[styles.selectInputText, !species && { color: '#888' }]}>
+              {species || 'Select species...'}
+            </Text>
+            <Ionicons 
+              name={showSpeciesPicker ? 'chevron-up' : 'chevron-down'} 
+              size={20} 
+              color="#d4ff00" 
+            />
+          </TouchableOpacity>
+          
+          {showSpeciesPicker && (
+            <View style={styles.speciesOptions}>
+              {speciesOptions.map((opt) => (
+                <TouchableOpacity
+                  key={opt}
+                  style={[styles.speciesOption, species === opt && styles.speciesOptionActive]}
+                  onPress={() => {
+                    setSpecies(opt);
+                    setShowSpeciesPicker(false);
+                  }}
+                >
+                  <Text style={[styles.speciesOptionText, species === opt && styles.speciesOptionTextActive]}>
+                    {opt}
+                  </Text>
+                  {species === opt && <Ionicons name="checkmark" size={20} color="#2d3e34" />}
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+        </View>
+
+        {/* Confidence Input */}
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Your Confidence (0–100)</Text>
+          <TextInput
+            value={confidenceStr}
+            onChangeText={(txt) => {
+              const digits = txt.replace(/[^\d]/g, '');
+              setConfidenceStr(digits);
+            }}
+            placeholder={aiConfidencePct != null ? String(aiConfidencePct) : 'e.g., 75'}
+            placeholderTextColor="#888"
+            keyboardType="numeric"
+            maxLength={3}
+            style={styles.textInput}
+            editable={!saving}
+          />
+        </View>
+
+        {/* Notes */}
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Notes (optional)</Text>
+          <TextInput
+            value={notes}
+            onChangeText={setNotes}
+            placeholder="Any remarks about background noise, overlapping calls, etc."
+            placeholderTextColor="#888"
+            multiline
+            numberOfLines={4}
+            style={[styles.textInput, styles.textArea]}
+            editable={!saving}
+          />
+        </View>
+
+        {/* Action Buttons */}
+        <View style={styles.actionButtons}>
+          <Pressable
+            onPress={onSave}
+            disabled={saving}
+            style={[styles.approveButton, saving && styles.buttonDisabled]}
+          >
+            <Ionicons name="checkmark-circle" size={24} color="#2d3e34" />
+            <Text style={styles.approveButtonText}>Approve</Text>
           </Pressable>
-        ) : (
-          <Text style={{ opacity: 0.7 }}>No audio URL available.</Text>
-        )}
-      </View>
 
-      {/* Species input */}
-      <View style={{ borderWidth: 1, borderRadius: 12, padding: 12, marginBottom: 14 }}>
-        <Text style={{ fontWeight: '600' }}>Species (required to approve)</Text>
-        <TextInput
-          value={species}
-          onChangeText={setSpecies}
-          placeholder={aiSpecies ? `e.g., ${aiSpecies}` : 'Enter species'}
-          autoCapitalize="words"
-          style={{
-            marginTop: 8,
-            borderWidth: 1,
-            borderRadius: 8,
-            padding: 10,
-          }}
-          editable={!saving}
-        />
-      </View>
-
-      {/* Confidence input */}
-      <View style={{ borderWidth: 1, borderRadius: 12, padding: 12, marginBottom: 14 }}>
-        <Text style={{ fontWeight: '600' }}>Your confidence (0–100)</Text>
-        <TextInput
-          value={confidenceStr}
-          onChangeText={(txt) => {
-            // keep only digits
-            const digits = txt.replace(/[^\d]/g, '');
-            setConfidenceStr(digits);
-          }}
-          placeholder={aiConfidencePct != null ? String(aiConfidencePct) : 'e.g., 75'}
-          keyboardType="numeric"
-          maxLength={3}
-          style={{
-            marginTop: 8,
-            borderWidth: 1,
-            borderRadius: 8,
-            padding: 10,
-            width: 120,
-          }}
-          editable={!saving}
-        />
-        <Text style={{ opacity: 0.6, marginTop: 6 }}>
-          (We'll store this as 0–1 under <Text style={{ fontWeight: '600' }}>expertConfidence</Text>.)
-        </Text>
-      </View>
-
-      {/* Notes */}
-      <View style={{ borderWidth: 1, borderRadius: 12, padding: 12, marginBottom: 16 }}>
-        <Text style={{ fontWeight: '600' }}>Notes (optional)</Text>
-        <TextInput
-          value={notes}
-          onChangeText={setNotes}
-          placeholder="Any remarks about background noise, overlapping calls, etc."
-          multiline
-          numberOfLines={3}
-          style={{
-            marginTop: 8,
-            borderWidth: 1,
-            borderRadius: 8,
-            padding: 10,
-            minHeight: 80,
-            textAlignVertical: 'top',
-          }}
-          editable={!saving}
-        />
-      </View>
-
-      {/* Action buttons */}
-      <View style={{ flexDirection: 'row', gap: 12 }}>
-        <Pressable
-          onPress={onSave}
-          disabled={saving}
-          style={{
-            opacity: saving ? 0.5 : 1,
-            paddingVertical: 12,
-            paddingHorizontal: 16,
-            borderWidth: 1,
-            borderRadius: 12,
-          }}
-        >
-          <Text style={{ fontWeight: '600' }}>Save Review</Text>
-        </Pressable>
-
-        <Pressable
-          onPress={onDiscard}
-          disabled={saving}
-          style={{
-            opacity: saving ? 0.5 : 1,
-            paddingVertical: 12,
-            paddingHorizontal: 16,
-            borderWidth: 1,
-            borderRadius: 12,
-          }}
-        >
-          <Text style={{ fontWeight: '600' }}>Discard</Text>
-        </Pressable>
-      </View>
-    </ScrollView>
+          <Pressable
+            onPress={onDiscard}
+            disabled={saving}
+            style={[styles.discardButton, saving && styles.buttonDisabled]}
+          >
+            <Ionicons name="close-circle" size={24} color="#FF6B6B" />
+            <Text style={styles.discardButtonText}>Discard</Text>
+          </Pressable>
+        </View>
+      </ScrollView>
+    </View>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#3F5A47',
+  },
+  loadingContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+    backgroundColor: '#3F5A47',
+    gap: 16,
+  },
+  loadingText: {
+    fontSize: 16,
+    color: '#aaa',
+  },
+  errorText: {
+    fontSize: 18,
+    color: '#fff',
+  },
+  goBackButton: {
+    backgroundColor: '#d4ff00',
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    marginTop: 8,
+  },
+  goBackText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#2d3e34',
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 60,
+    marginBottom: 20,
+  },
+  backButton: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: 'rgba(0, 0, 0, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerTitle: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#fff',
+    textAlign: 'center',
+  },
+  titleUnderline: {
+    height: 3,
+    backgroundColor: '#d4ff00',
+    marginTop: 4,
+    borderRadius: 2,
+  },
+  menuButton: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: 'rgba(0, 0, 0, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  scrollContent: {
+    paddingHorizontal: 20,
+    paddingBottom: 40,
+  },
+  aiCard: {
+    backgroundColor: '#2d3e34',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 2,
+    borderColor: '#d4ff00',
+  },
+  aiHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
+  aiHeaderText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#d4ff00',
+  },
+  aiContent: {
+    gap: 8,
+  },
+  aiRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  aiLabel: {
+    fontSize: 14,
+    color: '#aaa',
+  },
+  aiValue: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  recordingId: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 12,
+  },
+  card: {
+    backgroundColor: '#2d3e34',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+  },
+  cardTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#d4ff00',
+    marginBottom: 12,
+  },
+  audioPlayer: {
+    gap: 12,
+  },
+  waveformContainer: {
+    height: 60,
+    backgroundColor: '#3d4f44',
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 3,
+    paddingHorizontal: 12,
+  },
+  waveformBar: {
+    width: 4,
+    backgroundColor: '#d4ff00',
+    borderRadius: 2,
+  },
+  playButton: {
+    backgroundColor: '#3d4f44',
+    borderRadius: 12,
+    paddingVertical: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderWidth: 2,
+    borderColor: '#d4ff00',
+  },
+  playButtonActive: {
+    backgroundColor: '#d4ff00',
+  },
+  playButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  playButtonTextActive: {
+    color: '#2d3e34',
+  },
+  noAudioText: {
+    fontSize: 14,
+    color: '#888',
+    textAlign: 'center',
+    paddingVertical: 20,
+  },
+  selectInput: {
+    backgroundColor: '#3d4f44',
+    borderRadius: 12,
+    padding: 14,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(212, 255, 0, 0.3)',
+  },
+  selectInputText: {
+    fontSize: 16,
+    color: '#fff',
+  },
+  speciesOptions: {
+    marginTop: 8,
+    gap: 4,
+  },
+  speciesOption: {
+    backgroundColor: '#3d4f44',
+    borderRadius: 8,
+    padding: 12,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  speciesOptionActive: {
+    backgroundColor: '#d4ff00',
+  },
+  speciesOptionText: {
+    fontSize: 14,
+    color: '#fff',
+  },
+  speciesOptionTextActive: {
+    color: '#2d3e34',
+    fontWeight: '600',
+  },
+  textInput: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 14,
+    fontSize: 16,
+    color: '#333',
+  },
+  textArea: {
+    minHeight: 100,
+    textAlignVertical: 'top',
+  },
+  actionButtons: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 8,
+  },
+  approveButton: {
+    flex: 1,
+    backgroundColor: '#d4ff00',
+    borderRadius: 16,
+    paddingVertical: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  approveButtonText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#2d3e34',
+  },
+  discardButton: {
+    flex: 1,
+    backgroundColor: '#2d3e34',
+    borderRadius: 16,
+    paddingVertical: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderWidth: 2,
+    borderColor: '#FF6B6B',
+  },
+  discardButtonText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#FF6B6B',
+  },
+  buttonDisabled: {
+    opacity: 0.5,
+  },
+});
