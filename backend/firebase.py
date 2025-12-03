@@ -4,10 +4,11 @@ import json
 from pathlib import Path
 from dotenv import load_dotenv
 import firebase_admin
-from firebase_admin import credentials, firestore
+from firebase_admin import credentials, firestore, storage as fb_storage
 
-# Load .env for local dev
-load_dotenv()
+# Load backend/.env
+BASE_DIR = Path(__file__).resolve().parent
+load_dotenv(BASE_DIR / ".env")
 
 def _build_cred():
     # 1) Cloud Run / Secret Manager: env var set
@@ -28,7 +29,17 @@ def _build_cred():
 # Initialize Firebase only once
 if not firebase_admin._apps:
     cred = _build_cred()
-    firebase_admin.initialize_app(cred)
+    firebase_admin.initialize_app(cred,
+        {
+            "storageBucket": os.getenv(
+                "FIREBASE_STORAGE_BUCKET",
+                "frogwatch-backend.firebasestorage.app",
+                )
+        },
+    )
 
 # Firestore client
 db = firestore.client()
+
+# 🔹 Expose storage so other modules can do: firebase.storage.bucket()
+storage = fb_storage 

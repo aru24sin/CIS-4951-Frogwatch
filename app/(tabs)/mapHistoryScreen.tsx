@@ -74,7 +74,11 @@ function pickDevHost() {
   const m = scriptURL?.match(/\/\/([^/:]+):\d+/);
   return m?.[1] ?? 'localhost';
 }
-const API_BASE = __DEV__ ? `http://${pickDevHost()}:8000` : 'https://your-production-domain';
+//const API_BASE = __DEV__ ? `http://${pickDevHost()}:8000` : 'https://your-production-domain';
+const API_BASE =
+  process.env.EXPO_PUBLIC_API_BASE_URL ??
+  (__DEV__ ? `http://${pickDevHost()}:8000` : 'https://frogwatch-backend-1066546787031.us-central1.run.app');
+
 
 function resolveAudioURL(d: any): string | undefined {
   const filePath = d?.filePath || (d?.fileName ? `uploaded_audios/${d.fileName}` : undefined);

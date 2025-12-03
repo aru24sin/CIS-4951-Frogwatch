@@ -5,6 +5,7 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime
 
 from google.cloud.firestore_v1._helpers import GeoPoint
+from google.cloud import firestore  
 
 from backend.utils.roles import get_user_role
 from backend import firebase
