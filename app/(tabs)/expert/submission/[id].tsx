@@ -712,7 +712,7 @@ export default function ExpertSubmissionDetails() {
           {/* Volunteer Identification Confidence (read-only, High/Medium/Low) */}
           <View style={styles.card}>
             <Text style={styles.cardTitle}>
-              Volunteer Identification Confidence
+              Volunteer Confidence
             </Text>
             <View style={[styles.selectInput, styles.readOnlyField]}>
               <Text style={styles.selectInputText}>

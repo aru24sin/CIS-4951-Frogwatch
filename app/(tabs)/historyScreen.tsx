@@ -29,11 +29,13 @@ type Recording = {
   predictedSpecies: string;
   species: string;
   audioURL?: string;
+  filePath?: string;
   location: { latitude: number; longitude: number };
   locationCity?: string;
   status: string;
   timestampISO?: string;
   confidence?: number;
+  volunteerConfidence?: 'high' | 'medium' | 'low';
   notes?: string;
   submitterName?: string;
   recordingNumber?: number;
@@ -199,6 +201,7 @@ export default function HistoryScreen() {
               predictedSpecies: d.predictedSpecies ?? '',
               species: d.species ?? '',
               audioURL: resolveAudioURL(d),
+              filePath: d.filePath || (d.fileName ? `uploaded_audios/${d.userId || user.uid}/${d.fileName}` : undefined),
               location: { latitude: lat, longitude: lon },
               locationCity,
               status: d.status ?? 'pending_analysis',
@@ -207,6 +210,7 @@ export default function HistoryScreen() {
                 typeof d.confidenceScore === 'number'
                   ? Math.round(d.confidenceScore * 100)
                   : undefined,
+              volunteerConfidence: d.volunteerConfidence || undefined,
               notes: d.notes || '',
               submitterName,
               recordingNumber: index++,
@@ -471,6 +475,26 @@ export default function HistoryScreen() {
                           {item.aiConfidence != null && item.aiConfidence > 0 ? `${item.aiConfidence}%` : 'N/A'}
                         </Text>
                       </View>
+                    </View>
+                  </View>
+                )}
+
+                {/* User Confidence Section - show if volunteer confidence exists */}
+                {item.volunteerConfidence && (
+                  <View style={styles.userConfidenceBox}>
+                    <View style={styles.userConfidenceHeader}>
+                      <Ionicons name="person" size={16} color="#4db8e8" />
+                      <Text style={styles.userConfidenceTitle}>User Confidence</Text>
+                    </View>
+                    <View style={[
+                      styles.userConfidenceBadge,
+                      item.volunteerConfidence === 'high' && styles.confidenceHigh,
+                      item.volunteerConfidence === 'medium' && styles.confidenceMedium,
+                      item.volunteerConfidence === 'low' && styles.confidenceLow,
+                    ]}>
+                      <Text style={styles.userConfidenceText}>
+                        {item.volunteerConfidence.charAt(0).toUpperCase() + item.volunteerConfidence.slice(1)}
+                      </Text>
                     </View>
                   </View>
                 )}
@@ -934,5 +958,45 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#fff',
+  },
+  // User Confidence styles
+  userConfidenceBox: {
+    backgroundColor: 'rgba(77, 184, 232, 0.15)',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(77, 184, 232, 0.3)',
+  },
+  userConfidenceHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+    gap: 6,
+  },
+  userConfidenceTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#4db8e8',
+  },
+  userConfidenceBadge: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    borderRadius: 16,
+  },
+  userConfidenceText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#fff',
+  },
+  confidenceHigh: {
+    backgroundColor: '#4CAF50',
+  },
+  confidenceMedium: {
+    backgroundColor: '#FF9800',
+  },
+  confidenceLow: {
+    backgroundColor: '#f44336',
   },
 });

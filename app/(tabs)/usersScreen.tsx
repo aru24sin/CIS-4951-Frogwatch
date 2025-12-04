@@ -54,6 +54,7 @@ type Recording = {
   timestampISO?: string;
   imageUrl?: string;
   confidence?: number;
+  volunteerConfidence?: 'high' | 'medium' | 'low';
   aiSpecies?: string;
   aiConfidence?: number;
   notes?: string;
@@ -237,6 +238,7 @@ export default function UsersScreen() {
           status: data.status || 'pending',
           timestampISO: data.timestamp?.toDate?.()?.toLocaleDateString() || 'Unknown',
           confidence: userConfidence ?? aiConfidence, // Display confidence (user's or AI's)
+          volunteerConfidence: data.volunteerConfidence || undefined,
           aiSpecies: data.aiSpecies || data.predictedSpecies || '',
           aiConfidence: aiConfidence, // Only the AI's actual confidence, undefined if not available
           notes: data.notes || '',
@@ -686,6 +688,24 @@ export default function UsersScreen() {
                                   {recording.aiConfidence != null ? `${recording.aiConfidence}%` : 'N/A'}
                                 </Text>
                               </View>
+                            </View>
+                          </View>
+                        )}
+                        {recording.volunteerConfidence && (
+                          <View style={styles.userConfidenceSection}>
+                            <View style={styles.userConfidenceHeader}>
+                              <Ionicons name="person" size={14} color="#4db8e8" />
+                              <Text style={styles.userConfidenceLabel}>User Confidence</Text>
+                            </View>
+                            <View style={[
+                              styles.userConfidenceBadge,
+                              recording.volunteerConfidence === 'high' && styles.confidenceHigh,
+                              recording.volunteerConfidence === 'medium' && styles.confidenceMedium,
+                              recording.volunteerConfidence === 'low' && styles.confidenceLow,
+                            ]}>
+                              <Text style={styles.userConfidenceText}>
+                                {recording.volunteerConfidence.charAt(0).toUpperCase() + recording.volunteerConfidence.slice(1)}
+                              </Text>
                             </View>
                           </View>
                         )}
@@ -1228,5 +1248,45 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     color: '#2d3e34',
+  },
+  // User Confidence styles
+  userConfidenceSection: {
+    backgroundColor: 'rgba(77, 184, 232, 0.15)',
+    borderRadius: 6,
+    padding: 8,
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(77, 184, 232, 0.3)',
+  },
+  userConfidenceHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 6,
+    gap: 4,
+  },
+  userConfidenceLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#4db8e8',
+  },
+  userConfidenceBadge: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  userConfidenceText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#fff',
+  },
+  confidenceHigh: {
+    backgroundColor: '#4CAF50',
+  },
+  confidenceMedium: {
+    backgroundColor: '#FF9800',
+  },
+  confidenceLow: {
+    backgroundColor: '#f44336',
   },
 });

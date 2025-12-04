@@ -7,7 +7,10 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
+  FlatList,
   ImageBackground,
+  Modal,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -143,6 +146,7 @@ export default function PredictionScreen() {
   const [locationCity, setLocationCity] = useState('Loading location...');
   const [homeScreen, setHomeScreen] = useState<string>('./volunteerHomeScreen');
   const [menuVisible, setMenuVisible] = useState(false);
+  const [speciesPickerVisible, setSpeciesPickerVisible] = useState(false);
   const [volunteerConfidence, setVolunteerConfidence] = useState<
     '' | 'high' | 'medium' | 'low'
   >('');
@@ -417,6 +421,54 @@ export default function PredictionScreen() {
   return (
     <View style={styles.container}>
       <NavigationMenu isVisible={menuVisible} onClose={() => setMenuVisible(false)} />
+      
+      {/* iOS Species Picker Modal */}
+      <Modal
+        visible={speciesPickerVisible}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setSpeciesPickerVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Select Species</Text>
+              <TouchableOpacity onPress={() => setSpeciesPickerVisible(false)}>
+                <Ionicons name="close" size={28} color="#fff" />
+              </TouchableOpacity>
+            </View>
+            <FlatList
+              data={Object.keys(speciesImageMap)}
+              keyExtractor={(item) => item}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={[
+                    styles.modalItem,
+                    predictedSpecies === item && styles.modalItemSelected,
+                  ]}
+                  onPress={() => {
+                    setPredictedSpecies(item);
+                    setSpeciesPickerVisible(false);
+                  }}
+                >
+                  <Text
+                    style={[
+                      styles.modalItemText,
+                      predictedSpecies === item && styles.modalItemTextSelected,
+                    ]}
+                  >
+                    {item}
+                  </Text>
+                  {predictedSpecies === item && (
+                    <Ionicons name="checkmark" size={24} color="#ccff00" />
+                  )}
+                </TouchableOpacity>
+              )}
+            />
+          </View>
+        </View>
+      </Modal>
+
       {backgroundSource ? (
         <ImageBackground
           source={backgroundSource}
@@ -526,19 +578,36 @@ export default function PredictionScreen() {
             {/* Species Picker Label */}
             <Text style={styles.sectionLabel}>Confirm Frog Species:</Text>
 
-            {/* Species Picker */}
-            <View style={styles.pickerContainer}>
-              <Picker
-                selectedValue={predictedSpecies}
-                onValueChange={(itemValue) => setPredictedSpecies(itemValue)}
-                style={styles.picker}
-                dropdownIconColor="#ccff00"
+            {/* Cross-platform Species Picker */}
+            {Platform.OS === 'ios' ? (
+              // iOS: Use a touchable that opens a modal
+              <TouchableOpacity
+                style={styles.pickerButton}
+                onPress={() => setSpeciesPickerVisible(true)}
               >
-                {Object.keys(speciesImageMap).map((species) => (
-                  <Picker.Item key={species} label={species} value={species} />
-                ))}
-              </Picker>
-            </View>
+                <Text style={styles.pickerButtonText}>{predictedSpecies}</Text>
+                <Ionicons name="chevron-down" size={20} color="#ccff00" />
+              </TouchableOpacity>
+            ) : (
+              // Android: Use native Picker
+              <View style={styles.pickerContainer}>
+                <Picker
+                  selectedValue={predictedSpecies}
+                  onValueChange={(itemValue) => setPredictedSpecies(itemValue)}
+                  style={styles.picker}
+                  dropdownIconColor="#ccff00"
+                >
+                  {Object.keys(speciesImageMap).map((species) => (
+                    <Picker.Item 
+                      key={species} 
+                      label={species} 
+                      value={species}
+                      color="#000"
+                    />
+                  ))}
+                </Picker>
+              </View>
+            )}
 
             {/* Volunteer Confidence Level */}
             <Text style={styles.sectionLabel}>Confirm Confidence Level:</Text>
@@ -908,5 +977,69 @@ const styles = StyleSheet.create({
     marginTop: 4,
     fontSize: 12,
     color: '#666',
+  },
+  // iOS Picker Button styles
+  pickerButton: {
+    backgroundColor: '#1b1b1bff',
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: '#ccff00',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    marginBottom: 15,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  pickerButtonText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  // Modal styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: '#2d3e34',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: '60%',
+    paddingBottom: 30,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(204, 255, 0, 0.2)',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#fff',
+  },
+  modalItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  modalItemSelected: {
+    backgroundColor: 'rgba(204, 255, 0, 0.15)',
+  },
+  modalItemText: {
+    fontSize: 16,
+    color: '#fff',
+  },
+  modalItemTextSelected: {
+    color: '#ccff00',
+    fontWeight: '600',
   },
 });

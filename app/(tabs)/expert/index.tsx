@@ -157,7 +157,7 @@ export default function ExpertDashboard() {
           <View style={styles.statIconContainer}>
             <Ionicons name="time-outline" size={24} color="#f5a623" />
           </View>
-          <Text style={styles.statLabel}>Needs Review</Text>
+          <Text style={styles.statLabel}>Review</Text>
           <Text style={[styles.statNumber, { color: '#f5a623' }]}>
             {counts.needs}
           </Text>

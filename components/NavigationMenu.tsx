@@ -77,9 +77,9 @@ export default function NavigationMenu({ isVisible, onClose }: Props) {
 
   const getHomeScreen = () => {
     switch (userRole) {
-      case 'admin': return './adminHomeScreen';
-      case 'expert': return './expertHomeScreen';
-      default: return './volunteerHomeScreen';
+      case 'admin': return '/(tabs)/adminHomeScreen';
+      case 'expert': return '/(tabs)/expertHomeScreen';
+      default: return '/(tabs)/volunteerHomeScreen';
     }
   };
 
@@ -99,16 +99,16 @@ export default function NavigationMenu({ isVisible, onClose }: Props) {
     }
   };
 
+  // Use absolute paths to avoid navigation issues from nested routes
   const menuItems = [
     { icon: 'home', label: 'Home', route: getHomeScreen(), roles: ['volunteer', 'expert', 'admin'] },
-    { icon: 'radio-button-on', label: 'Recording', route: './recordScreen', roles: ['volunteer', 'expert'] },
-    { icon: 'bookmark', label: 'History', route: './historyScreen', roles: ['volunteer', 'expert'] },
-    { icon: 'map', label: 'Map', route: './mapHistoryScreen', roles: ['volunteer', 'expert', 'admin'] },
-    { icon: 'time', label: 'Review Queue', route: './expert', roles: ['expert', 'admin'] },
-    { icon: 'people', label: 'Users', route: './usersScreen', roles: ['admin'] },
-    { icon: 'person-circle', label: 'Profile', route: './profileScreen', roles: ['volunteer', 'expert', 'admin'] },
-    { icon: 'chatbubble-ellipses', label: 'Feedback', route: './feedbackScreen', roles: ['volunteer', 'expert', 'admin'] },
-    { icon: 'settings', label: 'Settings', route: './settingsScreen', roles: ['volunteer', 'expert', 'admin'] },
+    { icon: 'radio-button-on', label: 'Recording', route: '/(tabs)/recordScreen', roles: ['volunteer', 'expert'] },
+    { icon: 'bookmark', label: 'History', route: '/(tabs)/historyScreen', roles: ['volunteer', 'expert'] },
+    { icon: 'map', label: 'Map', route: '/(tabs)/mapHistoryScreen', roles: ['volunteer', 'expert', 'admin'] },
+    { icon: 'time', label: 'Review Queue', route: '/(tabs)/expert/review-queue', roles: ['expert', 'admin'] },
+    { icon: 'people', label: 'Users', route: '/(tabs)/usersScreen', roles: ['admin'] },
+    { icon: 'person-circle', label: 'Profile', route: '/(tabs)/profileScreen', roles: ['volunteer', 'expert', 'admin'] },
+    { icon: 'settings', label: 'Settings', route: '/(tabs)/settingsScreen', roles: ['volunteer', 'expert', 'admin'] },
   ];
 
   const filteredMenuItems = menuItems.filter(item => item.roles.includes(userRole));
@@ -131,7 +131,7 @@ export default function NavigationMenu({ isVisible, onClose }: Props) {
             try {
               await signOut(auth);
               onClose();
-              router.replace('./landingScreen');
+              router.replace('/(tabs)/landingScreen');
             } catch (error) {
               console.error('Error logging out:', error);
               Alert.alert('Error', 'Failed to logout');
