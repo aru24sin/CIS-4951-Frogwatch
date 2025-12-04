@@ -522,46 +522,64 @@ export default function MapHistoryScreen() {
         ))}
       </MapView>
 
-      {/* Filter Buttons */}
-      <View style={styles.filterContainer}>
-        <TouchableOpacity 
-          style={styles.filterButton}
-          onPress={() => {
-            setShowDatePicker(true);
-            setSelectingStartDate(true);
-          }}
-        >
-          <Text style={styles.filterButtonText}>{getDateFilterText()}</Text>
-        </TouchableOpacity>
+      {/* Filter Buttons - hide when card is showing */}
+      {!selectedRecording && (
+        <View style={styles.filterContainer}>
+          <TouchableOpacity 
+            style={styles.filterButton}
+            onPress={() => {
+              setShowDatePicker(true);
+              setSelectingStartDate(true);
+            }}
+          >
+            <Text style={styles.filterButtonText}>{getDateFilterText()}</Text>
+          </TouchableOpacity>
 
-        <TouchableOpacity 
-          style={styles.filterButton}
-          onPress={() => setShowSpeciesPicker(true)}
-        >
-          <Text style={styles.filterButtonText}>{getSpeciesFilterText()}</Text>
-        </TouchableOpacity>
-      </View>
+          <TouchableOpacity 
+            style={styles.filterButton}
+            onPress={() => setShowSpeciesPicker(true)}
+          >
+            <Text style={styles.filterButtonText}>{getSpeciesFilterText()}</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       {/* Selected Recording Card (collapsed) */}
       {selectedRecording && !expandedRecording && (
-        <TouchableOpacity 
-          style={styles.selectedCard}
-          onPress={handleCardPress}
-          activeOpacity={0.9}
-        >
-          <View style={styles.selectedCardContent}>
-            <View style={styles.selectedCardLeft}>
-              <View style={styles.speciesTag}>
-                <Text style={styles.speciesTagText}>Frog Spec #{selectedRecording.recordingNumber}</Text>
+        <>
+          {/* Backdrop to dismiss card */}
+          <TouchableOpacity 
+            style={styles.cardBackdrop}
+            activeOpacity={1}
+            onPress={() => setSelectedRecording(null)}
+          />
+          <View style={styles.selectedCard}>
+            <TouchableOpacity 
+              onPress={handleCardPress}
+              activeOpacity={0.9}
+            >
+              <View style={styles.selectedCardContent}>
+                <View style={styles.selectedCardLeft}>
+                  <View style={styles.speciesTag}>
+                    <Text style={styles.speciesTagText}>Frog Spec #{selectedRecording.recordingNumber}</Text>
+                  </View>
+                  <Text style={styles.selectedCardSpecies}>
+                    {selectedRecording.species || selectedRecording.predictedSpecies || 'Unknown Species'}
+                  </Text>
+                  <Text style={styles.selectedCardLocation}>{selectedRecording.locationCity}</Text>
+                  <Text style={styles.confidenceText}>
+                    Confidence: {selectedRecording.confidence != null ? `${selectedRecording.confidence}%` : 'N/A'}
+                  </Text>
+                </View>
+                <Image 
+                  source={speciesImageMap[selectedRecording.predictedSpecies] || placeholderImage} 
+                  style={styles.selectedCardImage} 
+                />
               </View>
-              <Text style={styles.confidenceText}>Confidence: {selectedRecording.confidence}</Text>
-            </View>
-            <Image 
-              source={speciesImageMap[selectedRecording.predictedSpecies] || placeholderImage} 
-              style={styles.selectedCardImage} 
-            />
+              <Text style={styles.tapToExpandText}>Tap to expand</Text>
+            </TouchableOpacity>
           </View>
-        </TouchableOpacity>
+        </>
       )}
 
       {/* Expanded Recording Modal */}
@@ -963,7 +981,7 @@ const styles = StyleSheet.create({
   },
   filterContainer: {
     position: 'absolute',
-    bottom: 20,
+    bottom: 80,
     left: 20,
     right: 20,
     flexDirection: 'row',
@@ -978,7 +996,6 @@ const styles = StyleSheet.create({
     borderColor: '#ccff00',
     paddingVertical: 14,
     paddingHorizontal: 20,
-    marginBottom: 80,
     alignItems: 'center',
   },
   filterButtonText: {
@@ -986,52 +1003,86 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '500',
   },
+  cardBackdrop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'transparent',
+  },
   selectedCard: {
     position: 'absolute',
-    bottom: 625,
-    right: 56,
+    bottom: 40,
+    left: 20,
+    right: 20,
     backgroundColor: '#2d3e34',
     borderRadius: 16,
-    paddingHorizontal: 20,
-    paddingTop: 15,
-    paddingBottom: 15,
+    padding: 16,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 8,
   },
+  dismissButton: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   selectedCardContent: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 150,
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   selectedCardLeft: {
     flex: 1,
+    marginRight: 12,
   },
   speciesTag: {
     backgroundColor: '#d4ff00',
-    paddingHorizontal: 2,
-    paddingVertical: 2,
-    width: 130,
-    height: 30,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
     borderRadius: 8,
-    alignSelf: 'flex-start'
+    alignSelf: 'flex-start',
+    marginBottom: 8,
   },
   speciesTagText: {
-    fontSize: 18,
-    alignSelf: 'center',
+    fontSize: 14,
     fontWeight: '700',
     color: '#2d3e34',
   },
   confidenceText: {
     fontSize: 14,
     fontWeight: '600',
+    color: '#aaa',
+  },
+  selectedCardSpecies: {
+    fontSize: 18,
+    fontWeight: '700',
     color: '#fff',
+    marginBottom: 4,
+  },
+  selectedCardLocation: {
+    fontSize: 14,
+    color: '#aaa',
+    marginBottom: 4,
+  },
+  tapToExpandText: {
+    fontSize: 12,
+    color: '#d4ff00',
+    textAlign: 'center',
+    marginTop: 12,
   },
   selectedCardImage: {
-    width: 80,
-    height: 80,
+    width: 70,
+    height: 70,
     borderRadius: 12,
   },
   expandedModal: {
