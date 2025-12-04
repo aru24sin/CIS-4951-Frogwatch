@@ -1,11 +1,27 @@
 // expertHomeScreen.tsx
 import { Ionicons } from "@expo/vector-icons";
 import NetInfo from "@react-native-community/netinfo";
+import { useFocusEffect } from "@react-navigation/native";
 import { useRouter } from "expo-router";
 import { onAuthStateChanged, signOut } from "firebase/auth";
-import { collection, doc, getCountFromServer, getDoc, query, where } from "firebase/firestore";
-import React, { useEffect, useState } from "react";
-import { Alert, ImageBackground, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import {
+  collection,
+  doc,
+  getCountFromServer,
+  getDoc,
+  query,
+  where,
+} from "firebase/firestore";
+import React, { useCallback, useEffect, useState } from "react";
+import {
+  Alert,
+  ImageBackground,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
 import NavigationMenu from "../../components/NavigationMenu";
 import { auth, db } from "../firebaseConfig";
 
@@ -14,17 +30,22 @@ export default function ExpertHomeScreen() {
   const [firstName, setFirstName] = useState<string | null>(null);
   const [lastName, setLastName] = useState<string | null>(null);
   const [menuVisible, setMenuVisible] = useState(false);
+
   const [pendingReviews, setPendingReviews] = useState(0);
+  const [approvedCount, setApprovedCount] = useState(0);
+  const [discardedCount, setDiscardedCount] = useState(0);
+
   const [isConnected, setIsConnected] = useState<boolean | null>(true);
 
-  // Network status listener
+  // --- Network status listener ---
   useEffect(() => {
-    const unsubscribe = NetInfo.addEventListener(state => {
+    const unsubscribe = NetInfo.addEventListener((state) => {
       setIsConnected(state.isConnected);
     });
     return () => unsubscribe();
   }, []);
 
+  // --- Load expert profile (name) on auth change ---
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (user) => {
       if (!user) {
@@ -50,11 +71,6 @@ export default function ExpertHomeScreen() {
           setFirstName(local ? local : null);
           setLastName(null);
         }
-
-        // Load pending reviews count
-        const rec = collection(db, 'recordings');
-        const needsReview = await getCountFromServer(query(rec, where('status', '==', 'needs_review')));
-        setPendingReviews(needsReview.data().count || 0);
       } catch (e) {
         console.warn("Profile load failed:", e);
       }
@@ -62,35 +78,72 @@ export default function ExpertHomeScreen() {
     return () => unsub();
   }, []);
 
+  // --- Helper: load counts for needs_review / approved / discarded ---
+  const loadReviewCounts = useCallback(async () => {
+    try {
+      if (!auth.currentUser) {
+        setPendingReviews(0);
+        setApprovedCount(0);
+        setDiscardedCount(0);
+        return;
+      }
+
+      const rec = collection(db, "recordings");
+
+      const needsReviewSnap = await getCountFromServer(
+        query(rec, where("status", "==", "needs_review"))
+      );
+      const approvedSnap = await getCountFromServer(
+        query(rec, where("status", "==", "approved"))
+      );
+      const discardedSnap = await getCountFromServer(
+        query(rec, where("status", "==", "discarded"))
+      );
+
+      setPendingReviews(needsReviewSnap.data().count || 0);
+      setApprovedCount(approvedSnap.data().count || 0);
+      setDiscardedCount(discardedSnap.data().count || 0);
+    } catch (e) {
+      console.warn("Failed to load review counts:", e);
+    }
+  }, []);
+
+  // --- Refresh counts whenever this screen is focused (e.g., after approve/discard) ---
+  useFocusEffect(
+    useCallback(() => {
+      loadReviewCounts();
+    }, [loadReviewCounts])
+  );
+
   const fullName =
     [firstName, lastName].filter(Boolean).join(" ") ||
     (firstName || lastName) ||
     "";
 
   const today = new Date();
-  const formattedDate = today.toLocaleDateString("en-US", { weekday: "long", day: "numeric", month: "long" });
+  const formattedDate = today.toLocaleDateString("en-US", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+  });
 
   const handleLogout = () => {
-    Alert.alert(
-      'Logout',
-      'Are you sure you want to logout?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Logout',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await signOut(auth);
-              router.replace('./landingScreen');
-            } catch (error) {
-              console.error('Error logging out:', error);
-              Alert.alert('Error', 'Failed to logout');
-            }
-          },
+    Alert.alert("Logout", "Are you sure you want to logout?", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Logout",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            await signOut(auth);
+            router.replace("./landingScreen");
+          } catch (error) {
+            console.error("Error logging out:", error);
+            Alert.alert("Error", "Failed to logout");
+          }
         },
-      ]
-    );
+      },
+    ]);
   };
 
   const buttons = [
@@ -128,26 +181,46 @@ export default function ExpertHomeScreen() {
   ];
 
   return (
-    <ImageBackground source={require("../../assets/images/homeBackground.png")} style={styles.background} resizeMode="cover">
-      <NavigationMenu isVisible={menuVisible} onClose={() => setMenuVisible(false)} />
-      
-      <ScrollView contentContainerStyle={styles.scrollContainer} showsVerticalScrollIndicator={false}>
+    <ImageBackground
+      source={require("../../assets/images/homeBackground.png")}
+      style={styles.background}
+      resizeMode="cover"
+    >
+      <NavigationMenu
+        isVisible={menuVisible}
+        onClose={() => setMenuVisible(false)}
+      />
+
+      <ScrollView
+        contentContainerStyle={styles.scrollContainer}
+        showsVerticalScrollIndicator={false}
+      >
         <View style={styles.overlay}>
           {/* Header with logout and menu buttons */}
           <View style={styles.header}>
             <TouchableOpacity onPress={handleLogout} style={styles.iconButton}>
               <Ionicons name="log-out-outline" size={24} color="#fff" />
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => setMenuVisible(true)} style={styles.iconButton}>
+            <TouchableOpacity
+              onPress={() => setMenuVisible(true)}
+              style={styles.iconButton}
+            >
               <Ionicons name="menu" size={28} color="#fff" />
             </TouchableOpacity>
           </View>
 
           <View>
-            <Text style={styles.hello}>Hello{fullName ? `, ${fullName}` : ","}</Text>
+            <Text style={styles.hello}>
+              Hello{fullName ? `, ${fullName}` : ","}
+            </Text>
             <Text style={styles.date}>{formattedDate}</Text>
             <View style={styles.roleBadge}>
-              <Ionicons name="shield-checkmark" size={14} color="#fff" style={{ marginRight: 4 }} />
+              <Ionicons
+                name="shield-checkmark"
+                size={14}
+                color="#fff"
+                style={{ marginRight: 4 }}
+              />
               <Text style={styles.roleText}>Expert</Text>
             </View>
           </View>
@@ -155,12 +228,23 @@ export default function ExpertHomeScreen() {
           <View style={styles.bottomSection}>
             <Text style={styles.status}>
               Status:{" "}
-              <Text style={{ color: isConnected ? "#4CAF50" : "#FF6B6B" }}>
+              <Text
+                style={{ color: isConnected ? "#4CAF50" : "#FF6B6B" }}
+              >
                 {isConnected ? "Online" : "Offline"}
               </Text>
               {pendingReviews > 0 && (
-                <Text style={styles.pendingText}> • {pendingReviews} pending reviews</Text>
+                <Text style={styles.pendingText}>
+                  {" "}
+                  • {pendingReviews} pending reviews
+                </Text>
               )}
+            </Text>
+
+            {/* Optional: show quick counts summary */}
+            <Text style={styles.reviewSummary}>
+              Needs review: {pendingReviews} • Approved: {approvedCount} •
+              Discarded: {discardedCount}
             </Text>
 
             <View style={styles.grid}>
@@ -171,10 +255,16 @@ export default function ExpertHomeScreen() {
                   onPress={() => router.push(button.route as any)}
                 >
                   <View style={styles.buttonContent}>
-                    <Ionicons name={button.icon} size={28} color="#ccff00" />
+                    <Ionicons
+                      name={button.icon}
+                      size={28}
+                      color="#ccff00"
+                    />
                     {button.badge !== undefined && (
                       <View style={styles.badge}>
-                        <Text style={styles.badgeText}>{button.badge > 99 ? '99+' : button.badge}</Text>
+                        <Text style={styles.badgeText}>
+                          {button.badge > 99 ? "99+" : button.badge}
+                        </Text>
                       </View>
                     )}
                   </View>
@@ -192,47 +282,72 @@ export default function ExpertHomeScreen() {
 const styles = StyleSheet.create({
   background: { flex: 1, width: "100%", height: "100%" },
   scrollContainer: { flexGrow: 1 },
-  overlay: { flex: 1, paddingTop: 50, paddingHorizontal: 24, paddingBottom: 40, justifyContent: "space-between" },
-  
+  overlay: {
+    flex: 1,
+    paddingTop: 50,
+    paddingHorizontal: 24,
+    paddingBottom: 40,
+    justifyContent: "space-between",
+  },
+
   header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     marginBottom: 10,
   },
   iconButton: {
     width: 50,
     height: 50,
     borderRadius: 25,
-    backgroundColor: 'rgba(0, 0, 0, 0.3)',
-    alignItems: 'center',
-    justifyContent: 'center',
+    backgroundColor: "rgba(0, 0, 0, 0.3)",
+    alignItems: "center",
+    justifyContent: "center",
   },
 
-  hello: { marginTop: 0, fontSize: 32, fontWeight: "400", color: "#f2f2f2ff" },
-  date: { fontSize: 30, fontWeight: "500", color: "#ccff00", marginBottom: 8 },
-  
+  hello: {
+    marginTop: 0,
+    fontSize: 32,
+    fontWeight: "400",
+    color: "#f2f2f2ff",
+  },
+  date: {
+    fontSize: 30,
+    fontWeight: "500",
+    color: "#ccff00",
+    marginBottom: 8,
+  },
+
   roleBadge: {
-    alignSelf: 'flex-start',
-    backgroundColor: '#4db8e8',
+    alignSelf: "flex-start",
+    backgroundColor: "#4db8e8",
     paddingHorizontal: 16,
     paddingVertical: 6,
     borderRadius: 16,
     marginTop: 4,
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     marginBottom: 300,
   },
   roleText: {
     fontSize: 14,
-    fontWeight: '700',
-    color: '#fff',
+    fontWeight: "700",
+    color: "#fff",
   },
 
   bottomSection: { marginTop: 20 },
-  status: { fontSize: 18, color: "#ffffffff", marginBottom: 20 },
-  pendingText: { color: '#d4ff00' },
-  grid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" },
+  status: { fontSize: 18, color: "#ffffffff", marginBottom: 8 },
+  pendingText: { color: "#d4ff00" },
+  reviewSummary: {
+    fontSize: 14,
+    color: "#e0e0e0",
+    marginBottom: 20,
+  },
+  grid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+  },
   button: {
     width: "32%",
     height: 90,
@@ -243,24 +358,24 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   buttonContent: {
-    position: 'relative',
+    position: "relative",
   },
   badge: {
-    position: 'absolute',
+    position: "absolute",
     top: -8,
     right: -12,
-    backgroundColor: '#FF6B6B',
+    backgroundColor: "#FF6B6B",
     borderRadius: 10,
     minWidth: 20,
     height: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     paddingHorizontal: 4,
   },
   badgeText: {
     fontSize: 11,
-    fontWeight: '700',
-    color: '#fff',
+    fontWeight: "700",
+    color: "#fff",
   },
   buttonText: { marginTop: 6, fontSize: 16, color: "#ffffffff" },
 });

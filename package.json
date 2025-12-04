@@ -54,6 +54,7 @@
     "@babel/core": "^7.26.0",
     "@types/axios": "^0.9.36",
     "@types/react": "~19.1.10",
+    "baseline-browser-mapping": "^2.9.0",
     "eslint": "^9.33.0",
     "eslint-config-expo": "~10.0.0",
     "eslint-plugin-react-hooks": "^5.2.0",
