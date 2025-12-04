@@ -11,6 +11,7 @@ import {
   updateDoc,
   where
 } from 'firebase/firestore';
+import { getDownloadURL, getStorage, ref } from 'firebase/storage';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -242,7 +243,7 @@ export default function MapHistoryScreen() {
                 typeof d.confidenceScore === 'number'
                   ? Math.round(d.confidenceScore * 100)
                   : undefined,
-              volunteerConfidence: d.volunteerConfidence || undefined,
+              volunteerConfidence: d.volunteerConfidenceLevel || d.volunteerConfidence || undefined,
               notes: d.notes || '',
               submitterName,
               recordingNumber: index++,
@@ -273,6 +274,12 @@ export default function MapHistoryScreen() {
     return () => {
       offSnap?.();
       offAuth?.();
+    };
+  }, []); // Remove sound dependency to prevent re-fetching when audio plays
+
+  // Separate cleanup for sound
+  useEffect(() => {
+    return () => {
       sound?.unloadAsync().catch(() => {});
     };
   }, [sound]);
@@ -335,18 +342,50 @@ export default function MapHistoryScreen() {
     }
   };
 
-  const handlePlay = async (uri?: string) => {
-    if (!uri) return;
+  const handlePlay = async (uri?: string, filePath?: string) => {
+    if (!uri && !filePath) return;
     try {
+      // Stop and unload any existing sound
       if (sound) {
-        await sound.unloadAsync();
+        try {
+          await sound.stopAsync();
+          await sound.unloadAsync();
+        } catch {}
         setSound(null);
       }
-      const { sound: newSound } = await Audio.Sound.createAsync({ uri });
+
+      // Configure audio mode for playback
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        playsInSilentModeIOS: true,
+        staysActiveInBackground: false,
+        shouldDuckAndroid: true,
+        playThroughEarpieceAndroid: false,
+      });
+
+      // Get authenticated download URL from Firebase Storage
+      let audioUri = uri;
+      if (filePath) {
+        try {
+          const storage = getStorage(app);
+          const audioRef = ref(storage, filePath);
+          audioUri = await getDownloadURL(audioRef);
+        } catch (storageErr) {
+          console.log('Storage URL fetch failed, trying direct URI:', storageErr);
+        }
+      }
+
+      if (!audioUri) {
+        Alert.alert('Error', 'No audio URL available');
+        return;
+      }
+
+      const { sound: newSound } = await Audio.Sound.createAsync({ uri: audioUri });
       setSound(newSound);
       await newSound.playAsync();
     } catch (e) {
       console.error('Audio play error:', e);
+      Alert.alert('Playback Error', 'Unable to play audio file');
     }
   };
 
@@ -766,7 +805,7 @@ export default function MapHistoryScreen() {
               <View style={styles.actionButtons}>
                 <TouchableOpacity
                   style={styles.playButton}
-                  onPress={() => handlePlay(expandedRecording.audioURL)}
+                  onPress={() => handlePlay(expandedRecording.audioURL, expandedRecording.filePath)}
                 >
                   <Text style={styles.playButtonText}>play</Text>
                 </TouchableOpacity>

@@ -7,6 +7,7 @@ import { onAuthStateChanged } from 'firebase/auth';
 import {
   collection, doc, DocumentData, getDoc, onSnapshot, query, Timestamp, updateDoc, where
 } from 'firebase/firestore';
+import { getDownloadURL, getStorage, ref } from 'firebase/storage';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -210,7 +211,7 @@ export default function HistoryScreen() {
                 typeof d.confidenceScore === 'number'
                   ? Math.round(d.confidenceScore * 100)
                   : undefined,
-              volunteerConfidence: d.volunteerConfidence || undefined,
+              volunteerConfidence: d.volunteerConfidenceLevel || d.volunteerConfidence || undefined,
               notes: d.notes || '',
               submitterName,
               recordingNumber: index++,
@@ -242,15 +243,25 @@ export default function HistoryScreen() {
     return () => {
       offSnap?.();
       offAuth?.();
+    };
+  }, []); // Remove sound dependency to prevent re-fetching when audio plays
+
+  // Separate cleanup for sound
+  useEffect(() => {
+    return () => {
       sound?.unloadAsync().catch(() => {});
     };
   }, [sound]);
 
-  const handlePlay = async (uri?: string, recordingId?: string) => {
-    if (!uri) return;
+  const handlePlay = async (uri?: string, recordingId?: string, filePath?: string) => {
+    if (!uri && !filePath) return;
     try {
+      // Stop and unload any existing sound
       if (sound) {
-        await sound.unloadAsync();
+        try {
+          await sound.stopAsync();
+          await sound.unloadAsync();
+        } catch {}
         setSound(null);
         setPlayingId(null);
       }
@@ -259,8 +270,35 @@ export default function HistoryScreen() {
         // Was playing this one, now stopped
         return;
       }
+
+      // Configure audio mode for playback
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        playsInSilentModeIOS: true,
+        staysActiveInBackground: false,
+        shouldDuckAndroid: true,
+        playThroughEarpieceAndroid: false,
+      });
+
+      // Get authenticated download URL from Firebase Storage
+      let audioUri = uri;
+      if (filePath) {
+        try {
+          const storage = getStorage(app);
+          const audioRef = ref(storage, filePath);
+          audioUri = await getDownloadURL(audioRef);
+        } catch (storageErr) {
+          console.log('Storage URL fetch failed, trying direct URI:', storageErr);
+          // Fall back to the provided URI
+        }
+      }
+
+      if (!audioUri) {
+        Alert.alert('Error', 'No audio URL available');
+        return;
+      }
       
-      const { sound: newSound } = await Audio.Sound.createAsync({ uri });
+      const { sound: newSound } = await Audio.Sound.createAsync({ uri: audioUri });
       setSound(newSound);
       setPlayingId(recordingId || null);
       
@@ -274,6 +312,7 @@ export default function HistoryScreen() {
       await newSound.playAsync();
     } catch (e) {
       console.error('Audio play error:', e);
+      Alert.alert('Playback Error', 'Unable to play audio file');
     }
   };
 
@@ -537,7 +576,7 @@ export default function HistoryScreen() {
             <View style={styles.actionButtons}>
               <TouchableOpacity
                 style={[styles.playButton, isPlaying && styles.playButtonActive]}
-                onPress={() => handlePlay(item.audioURL, item.recordingId)}
+                onPress={() => handlePlay(item.audioURL, item.recordingId, item.filePath)}
               >
                 <Ionicons 
                   name={isPlaying ? "pause" : "play"} 

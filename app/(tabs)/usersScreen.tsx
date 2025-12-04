@@ -238,7 +238,7 @@ export default function UsersScreen() {
           status: data.status || 'pending',
           timestampISO: data.timestamp?.toDate?.()?.toLocaleDateString() || 'Unknown',
           confidence: userConfidence ?? aiConfidence, // Display confidence (user's or AI's)
-          volunteerConfidence: data.volunteerConfidence || undefined,
+          volunteerConfidence: data.volunteerConfidenceLevel || data.volunteerConfidence || undefined,
           aiSpecies: data.aiSpecies || data.predictedSpecies || '',
           aiConfidence: aiConfidence, // Only the AI's actual confidence, undefined if not available
           notes: data.notes || '',

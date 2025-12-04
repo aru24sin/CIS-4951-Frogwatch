@@ -1,10 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
 import { Audio } from 'expo-av';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
 import { doc, getDoc } from 'firebase/firestore';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -62,6 +63,75 @@ export default function RecordScreen() {
   const progressAnim = useRef(new Animated.Value(0)).current;
   const router = useRouter();
 
+  // Initialize audio session on mount and when screen comes into focus
+  useEffect(() => {
+    const initAudio = async () => {
+      try {
+        // Request audio permissions early
+        await Audio.requestPermissionsAsync();
+        
+        // Reset to playback mode first (clears any recording state)
+        await Audio.setAudioModeAsync({
+          allowsRecordingIOS: false,
+          playsInSilentModeIOS: true,
+          staysActiveInBackground: false,
+          shouldDuckAndroid: true,
+          playThroughEarpieceAndroid: false,
+        });
+      } catch (err) {
+        console.log('Audio init error:', err);
+      }
+    };
+    initAudio();
+
+    // Also reset when component unmounts
+    return () => {
+      const cleanup = async () => {
+        try {
+          if (recRef.current) {
+            await recRef.current.stopAndUnloadAsync();
+            recRef.current = null;
+          }
+          await Audio.setAudioModeAsync({
+            allowsRecordingIOS: false,
+            playsInSilentModeIOS: true,
+          });
+        } catch {}
+      };
+      cleanup();
+    };
+  }, []);
+
+  // Reset audio session when screen comes into focus (e.g., after playing audio elsewhere)
+  useFocusEffect(
+    useCallback(() => {
+      const resetAudioSession = async () => {
+        try {
+          // Stop any existing sound
+          if (sound) {
+            try {
+              await sound.stopAsync();
+              await sound.unloadAsync();
+            } catch {}
+            setSound(null);
+          }
+          
+          // Reset to non-recording mode
+          await Audio.setAudioModeAsync({
+            allowsRecordingIOS: false,
+            playsInSilentModeIOS: true,
+            staysActiveInBackground: false,
+            shouldDuckAndroid: true,
+            playThroughEarpieceAndroid: false,
+          });
+        } catch (err) {
+          console.log('Focus audio reset error:', err);
+        }
+      };
+      resetAudioSession();
+    }, [sound])
+  );
+
   // Determine the correct home screen on mount
   useEffect(() => {
     getHomeScreen().then(setHomeScreen);
@@ -98,20 +168,54 @@ export default function RecordScreen() {
         return;
       }
 
+      // Unload any existing sound first
+      if (sound) {
+        try {
+          await sound.stopAsync();
+          await sound.unloadAsync();
+        } catch {}
+        setSound(null);
+      }
+
+      // Stop any existing recording
+      if (recRef.current) {
+        try {
+          await recRef.current.stopAndUnloadAsync();
+        } catch {}
+        recRef.current = null;
+      }
+
+      // IMPORTANT: First disable recording mode to reset the session
+      try {
+        await Audio.setAudioModeAsync({
+          allowsRecordingIOS: false,
+          playsInSilentModeIOS: true,
+          staysActiveInBackground: false,
+          shouldDuckAndroid: true,
+          playThroughEarpieceAndroid: false,
+        });
+      } catch {}
+
+      // Wait for session to fully reset
+      await new Promise(resolve => setTimeout(resolve, 200));
+
+      // Now enable recording mode
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: true,
         playsInSilentModeIOS: true,
+        staysActiveInBackground: false,
+        shouldDuckAndroid: true,
+        playThroughEarpieceAndroid: false,
       });
+
+      // Another small delay after enabling recording
+      await new Promise(resolve => setTimeout(resolve, 100));
 
       setAudioUri(null);
       setTimer(0);
       progressAnim.setValue(0);
       stoppingRef.current = false;
       if (autoStopRef.current) clearTimeout(autoStopRef.current);
-      if (sound) {
-        await sound.unloadAsync().catch(() => {});
-        setSound(null);
-      }
 
       const { recording } = await Audio.Recording.createAsync(
         Audio.RecordingOptionsPresets.HIGH_QUALITY
@@ -133,7 +237,14 @@ export default function RecordScreen() {
       }, MAX_MS);
     } catch (err) {
       console.error('Error starting recording', err);
-      Alert.alert('Error', 'Could not start recording.');
+      // Try to reset audio mode on error
+      try {
+        await Audio.setAudioModeAsync({
+          allowsRecordingIOS: false,
+          playsInSilentModeIOS: true,
+        });
+      } catch {}
+      Alert.alert('Error', 'Could not start recording. Please try again.');
     }
   };
 
@@ -152,6 +263,15 @@ export default function RecordScreen() {
       await rec.stopAndUnloadAsync();
       const tmpUri = rec.getURI();
       recRef.current = null;
+
+      // Reset audio mode for playback
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        playsInSilentModeIOS: true,
+        staysActiveInBackground: false,
+        shouldDuckAndroid: true,
+        playThroughEarpieceAndroid: false,
+      });
 
       if (!tmpUri) {
         Alert.alert('Recording error', 'No audio URI returned.');
