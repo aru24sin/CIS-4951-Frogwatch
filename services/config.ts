@@ -1,65 +1,24 @@
 // services/config.ts
-import Constants from 'expo-constants';
-import { NativeModules, Platform } from 'react-native';
 
 /**
- * Get the development host for API calls
- * This handles running on emulators, simulators, and physical devices
+ * Central place for API configuration.
+ *
+ * The base URL comes from EXPO_PUBLIC_API_BASE_URL so that:
+ * - On real devices / teammates' phones, you can point to Cloud Run
+ * - For local testing, you can temporarily point to http://YOUR_IP:8000
+
+ * Example .env values:
+ *   EXPO_PUBLIC_API_BASE_URL=https://frogwatch-backend-1066546787031.us-central1.run.app
+ *   # or for local testing:
+ *   # EXPO_PUBLIC_API_BASE_URL=http://192.168.1.10:8000
  */
-function getDevHost(): string {
-  // Try to get from Expo config
-  const hostUri = 
-    (Constants as any)?.expoGoConfig?.hostUri ??
-    (Constants as any)?.expoGoConfig?.debuggerHost ??
-    (Constants as any)?.expoConfig?.hostUri ??
-    '';
 
-  if (hostUri) {
-    const h = String(hostUri).split(':')[0];
-    if (h) return h;
-  }
-
-  // Try to get from React Native source code URL
-  const scriptURL: string | undefined = (NativeModules as any)?.SourceCode?.scriptURL;
-  const m = scriptURL?.match(/\/\/([^/:]+):\d+/);
-  if (m?.[1]) return m[1];
-
-  // Android emulator localhost
-  if (Platform.OS === 'android') {
-    return '10.0.2.2';
-  }
-
-  return 'localhost';
-}
-
-/**
- * API Configuration
- * 
- * IMPORTANT: Before deploying to production, update PROD_URL with your deployed API URL.
- * 
- * Deployment options:
- * - Railway: https://your-app.up.railway.app
- * - Render: https://your-app.onrender.com
- * - Fly.io: https://your-app.fly.dev
- * - Google Cloud Run: https://your-app-xxxxx.run.app
- */
 export const API_CONFIG = {
-  // Development URL - uses dynamic host detection for local testing
-  DEV_URL: `http://${getDevHost()}:8000`,
-  
-  // ========================================
-  // PRODUCTION URL - UPDATE THIS BEFORE RELEASE!
-  // ========================================
-  // After deploying your API server, replace this with your actual URL:
-  // Example: 'https://frogwatch-api-production.up.railway.app'
-  PROD_URL: 'https://frogwatch-api.up.railway.app',
-  
-  // Get the current API base URL based on environment
-  get BASE_URL(): string {
-    // In production builds, always use PROD_URL
-    // In development, use DEV_URL (local server)
-    return __DEV__ ? this.DEV_URL : this.PROD_URL;
-  },
+  // Base URL for all backend calls
+  BASE_URL: (
+    process.env.EXPO_PUBLIC_API_BASE_URL ??
+    'https://frogwatch-backend-1066546787031.us-central1.run.app'
+  ).replace(/\/$/, ''), // strip trailing slash if someone adds it
 
   // Timeout for API requests (in milliseconds)
   TIMEOUT: 30000,
