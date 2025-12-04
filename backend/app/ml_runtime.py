@@ -1,97 +1,109 @@
-# backend/app/routes/ml_runtime.py
 from __future__ import annotations
+import os, sys, time, tempfile, traceback
+from pathlib import Path
+from typing import Optional
 
 from fastapi import APIRouter, UploadFile, File, Form
-from pathlib import Path
-import os, shutil, tempfile
+from fastapi.responses import JSONResponse
 
-# ---- Import teammate's helpers (support several possible locations) ----
-try:
-    # If you placed the model code under backend/app/model
-    from backend.app.model.Predictor import from_pretrained, predict_one
-except ModuleNotFoundError:
-    try:
-        # If you placed it under backend/model
-        from backend.model.Predictor import from_pretrained, predict_one
-    except ModuleNotFoundError:
-        # If you kept a top-level /model folder
-        from model.Predictor import from_pretrained, predict_one  # type: ignore
+# --- Paths / imports for Predictor + weights ---
 
-router = APIRouter(prefix="/ml", tags=["ml"])
+ROUTE_DIR = Path(__file__).resolve().parent          # backend/app/routes
+BACKEND_DIR = ROUTE_DIR.parent.parent                # backend
+MODEL_DIR = BACKEND_DIR / "model"                    # backend/model
 
-# ---- Resolve the model directory robustly ----
-def _resolve_ckpt_dir() -> Path:
-    # 1) explicit override
-    env = os.getenv("FROG_MODEL_DIR")
-    if env:
-        return Path(env)
+# so we can: from Predictor import ...
+sys.path.append(str(MODEL_DIR))
 
-    here = Path(__file__).resolve()
-    candidates = [
-        here.parents[2] / "model",   # backend/model
-        here.parents[3] / "model",   # repo_root/model
-        Path.cwd() / "backend" / "model",
-        Path.cwd() / "model",
-    ]
-    for p in candidates:
-        if p.exists():
-            return p
-    # fallback to backend/model even if it doesn't exist (from_pretrained will raise)
-    return here.parents[2] / "model"
+from Predictor import from_pretrained, predict_one   # from backend/model/Predictor.py
 
-CKPT_DIR = _resolve_ckpt_dir()
+# You can override this via env var on Cloud Run if needed
+MODEL_FILE = os.getenv("FROGNET_WEIGHTS", "frognet_head_maxprob_a3_k3.pth")
 
-# ---- Lazy singletons ----
-_model = None
-_preprocess = None
-_idx_to_class = None
+router = APIRouter(tags=["ML"])   # no prefix → we’ll define full paths on routes
+
+
+print(f"[ml_runtime] loading model from {MODEL_DIR} / {MODEL_FILE}")
+_model, _preprocess, _idx_to_class = from_pretrained(str(MODEL_DIR), filename=MODEL_FILE)
+print(f"[ml_runtime] classes: {sorted(_idx_to_class.values())}")
+
 
 def get_model():
-    """Load the model once and cache it."""
-    global _model, _preprocess, _idx_to_class
-    if _model is None:
-        _model, _preprocess, _idx_to_class = from_pretrained(str(CKPT_DIR))
-    return _model, _preprocess, _idx_to_class
+    """Used by main.py warmup."""
+    return _model
 
-# ---- Plain function used by the HTTP layer (ml.py) ----
-def predict_file(path: str, topk: int = 3):
-    """
-    Wrapper used by the /predict endpoint.
-    Returns (name, confidence, topk_list).
-    """
-    model, preprocess, idx_to_class = get_model()
-    try:
-        # If your Predictor supports topk:
-        return predict_one(path, model, preprocess, idx_to_class, topk=topk)  # type: ignore[arg-type]
-    except TypeError:
-        # Older signature (no topk arg)
-        return predict_one(path, model, preprocess, idx_to_class)
 
-# Optional route (only active if included in main)
-@router.post("/predict")
-async def predict(
-    file: UploadFile = File(...),
-    lat: float | None = Form(None),
-    lon: float | None = Form(None),
-):
-    # Save uploaded audio to a temp file
-    suffix = Path(file.filename or "").suffix or ".wav"
+def _infer(local_path: str, topk: int = 3):
+    t0 = time.perf_counter()
+    name, conf, topk_out = predict_one(local_path, _model, _preprocess, _idx_to_class, topk=topk)
+    return name, conf, topk_out, (time.perf_counter() - t0) * 1000.0
+
+
+def _save_to_tmp(upload: UploadFile) -> str:
+    suffix = Path(upload.filename or "audio").suffix or ".wav"
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        shutil.copyfileobj(file.file, tmp)
-        tmp_path = Path(tmp.name)
+        data = upload.file.read()
+        tmp.write(data)
+        return tmp.name
 
+
+@router.get("/health-ml")
+def health_ml():
+    return {"status": "ok"}
+
+
+@router.post("/predict")
+@router.post("/ml/predict")
+async def predict_endpoint(
+    file: Optional[UploadFile] = File(None),
+    audio_url: Optional[str] = Form(None),
+    topk: int = Form(3),
+):
+    """
+    Unified ML endpoint:
+      - POST /predict
+      - POST /ml/predict
+
+    Body (multipart/form-data):
+      - file: audio file (wav, m4a, etc.)
+      - topk: optional (default 3)
+    """
+    if not file and not audio_url:
+        return JSONResponse({"error": "No audio provided"}, status_code=400)
+
+    local_path: Optional[str] = None
     try:
-        name, conf, top3 = predict_file(str(tmp_path), topk=3)
+        if file:
+            local_path = _save_to_tmp(file)
+        else:
+            return JSONResponse(
+                {"error": "audio_url not supported in this build"},
+                status_code=400,
+            )
+
+        name, conf, topk_out, ms = _infer(local_path, topk=topk)
         return {
-            "ok": True,
             "species": name,
-            "confidence": conf,
-            "top3": top3,
-            "lat": lat,
-            "lon": lon,
+            "confidence": round(float(conf), 4),
+            "topk": [{"label": lbl, "p": float(p)} for (lbl, p) in topk_out],
+            "inference_ms": round(ms, 1),
         }
+    except Exception as e:
+        # Full traceback to logs + client (for debugging)
+        print("\n=== ML PREDICT TRACEBACK ===")
+        traceback.print_exc()
+        print("================================\n")
+
+        return JSONResponse(
+            {
+                "error": f"{type(e).__name__}: {e}",
+                "traceback": traceback.format_exc(),
+            },
+            status_code=500,
+        )
     finally:
-        try:
-            tmp_path.unlink(missing_ok=True)
-        except Exception:
-            pass
+        if local_path and os.path.exists(local_path):
+            try:
+                os.remove(local_path)
+            except Exception:
+                pass

@@ -12,9 +12,9 @@ load_dotenv()
 import backend.firebase  # DO NOT remove; sets up credentials/app
 
 # Routers
-from backend.app.routes import audio, users, recordings, approvals, feedback, auth
+from backend.app.routes import audio, users, recordings, approvals, feedback, auth, admin, settings
 from backend.app.routes import ml_runtime            # -> /ml/predict
-from backend.app.routes import ml as ml_plain        # -> /predict
+#from backend.app.routes import ml as ml_plain        # -> /predict
 
 # Makes Swagger show lock icon + handle Authorization header automatically
 security = HTTPBearer()
@@ -34,7 +34,7 @@ app.add_middleware(
 # -------- Public/unprotected routes --------
 app.include_router(auth.router)
 app.include_router(ml_runtime.router)   # /ml/predict
-app.include_router(ml_plain.router)     # /predict
+#app.include_router(ml_plain.router)     # /predict
 app.include_router(admin.router)
 app.include_router(settings.router)
 
