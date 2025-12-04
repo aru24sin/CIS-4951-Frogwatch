@@ -24,6 +24,12 @@ export default function ReviewQueue() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    // Check if user is authenticated before setting up listener
+    if (!auth.currentUser) {
+      setLoading(false);
+      return;
+    }
+
     // Query for recordings that need review
     // predictionScreen sets status to 'needs_review' when submitting
     const ref = collection(db, 'recordings');
@@ -38,6 +44,12 @@ export default function ReviewQueue() {
     const unsub = onSnapshot(
       q, 
       (snap) => {
+        // Double-check user is still logged in
+        if (!auth.currentUser) {
+          setItems([]);
+          setLoading(false);
+          return;
+        }
         const rows: Rec[] = [];
         snap.forEach((d) => rows.push({ id: d.id, ...(d.data() as any) }));
         setItems(rows);
@@ -46,8 +58,11 @@ export default function ReviewQueue() {
         console.log(`Loaded ${rows.length} recordings needing review`);
       },
       (err) => {
-        console.error('Review queue query error:', err);
-        setError(err.message);
+        // Only log error if user is still logged in
+        if (auth.currentUser) {
+          console.error('Review queue query error:', err);
+          setError(err.message);
+        }
         setLoading(false);
       }
     );

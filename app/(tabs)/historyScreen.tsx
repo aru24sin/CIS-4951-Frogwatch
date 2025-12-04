@@ -150,6 +150,12 @@ export default function HistoryScreen() {
     let offSnap: (() => void) | undefined;
 
     offAuth = onAuthStateChanged(auth, (user) => {
+      // Clean up previous snapshot listener when auth state changes
+      if (offSnap) {
+        offSnap();
+        offSnap = undefined;
+      }
+
       if (!user) {
         setRecordings([]);
         setLoading(false);
@@ -164,6 +170,13 @@ export default function HistoryScreen() {
       offSnap = onSnapshot(
         q,
         async (snap) => {
+          // Double-check user is still logged in
+          if (!auth.currentUser) {
+            setRecordings([]);
+            setLoading(false);
+            return;
+          }
+
           const rows: Recording[] = [];
           let index = 1;
           
@@ -211,7 +224,11 @@ export default function HistoryScreen() {
           setLoading(false);
         },
         (err) => {
-          setErrorText(err?.message || String(err));
+          // Only log error if user is still logged in (ignore permission errors on logout)
+          if (auth.currentUser) {
+            console.error('Error fetching recordings:', err);
+            setErrorText(err?.message || String(err));
+          }
           setRecordings([]);
           setLoading(false);
         }

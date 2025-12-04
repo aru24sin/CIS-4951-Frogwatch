@@ -47,11 +47,16 @@ type User = {
 type Recording = {
   recordingId: string;
   predictedSpecies: string;
+  species?: string;
   location: { latitude: number; longitude: number };
   locationCity?: string;
   status: string;
   timestampISO?: string;
   imageUrl?: string;
+  confidence?: number;
+  aiSpecies?: string;
+  aiConfidence?: number;
+  notes?: string;
 };
 
 const speciesImageMap: Record<string, any> = {
@@ -132,12 +137,12 @@ export default function UsersScreen() {
           setIsAdmin(userIsAdmin);
           
           if (!userIsAdmin) {
-            Alert.alert('Access Denied', 'You do not have admin privileges');
-            // Navigate to appropriate home screen
+            // Silently redirect non-admin users to their appropriate home screen
+            // This can happen if the screen is loaded during auth state change
             if (userIsExpert) {
-              router.push('./expertHomeScreen');
+              router.replace('./expertHomeScreen');
             } else {
-              router.push('./volunteerHomeScreen');
+              router.replace('./volunteerHomeScreen');
             }
             return;
           }
@@ -208,9 +213,22 @@ export default function UsersScreen() {
       const recordings: Recording[] = [];
       recordingsSnapshot.forEach((doc) => {
         const data = doc.data();
+        
+        // User's manually input confidence (if any)
+        const userConfidence = typeof data.confidence === 'number' 
+          ? Math.round(data.confidence * 100) 
+          : undefined;
+        
+        // AI's confidence score - only from aiConfidence or confidenceScore fields
+        const aiConfidenceRaw = data.aiConfidence ?? data.confidenceScore;
+        const aiConfidence = typeof aiConfidenceRaw === 'number' 
+          ? Math.round(aiConfidenceRaw * 100) 
+          : undefined;
+            
         recordings.push({
           recordingId: doc.id,
           predictedSpecies: data.predictedSpecies || '',
+          species: data.species || '',
           location: {
             latitude: data.location?.lat || 0,
             longitude: data.location?.lng || 0,
@@ -218,7 +236,17 @@ export default function UsersScreen() {
           locationCity: data.locationCity || 'Unknown Location',
           status: data.status || 'pending',
           timestampISO: data.timestamp?.toDate?.()?.toLocaleDateString() || 'Unknown',
+          confidence: userConfidence ?? aiConfidence, // Display confidence (user's or AI's)
+          aiSpecies: data.aiSpecies || data.predictedSpecies || '',
+          aiConfidence: aiConfidence, // Only the AI's actual confidence, undefined if not available
+          notes: data.notes || '',
         });
+      });
+
+      // Sort by date (newest first)
+      recordings.sort((a, b) => {
+        if (!a.timestampISO || !b.timestampISO) return 0;
+        return new Date(b.timestampISO).getTime() - new Date(a.timestampISO).getTime();
       });
 
       // Update the user with recordings
@@ -592,23 +620,82 @@ export default function UsersScreen() {
                 {user.recordings && user.recordings.length > 0 ? (
                   user.recordings.map((recording, index) => (
                     <View key={recording.recordingId} style={styles.recordingCard}>
-                      <View style={styles.recordingInfo}>
-                        <View style={styles.recordingTag}>
-                          <Text style={styles.recordingTagText}>
-                            Frog Spec #{index + 1}
+                      <View style={styles.recordingHeader}>
+                        <View style={styles.recordingHeaderLeft}>
+                          <View style={styles.recordingTag}>
+                            <Text style={styles.recordingTagText}>
+                              #{index + 1}
+                            </Text>
+                          </View>
+                          <View style={[
+                            styles.statusBadge,
+                            recording.status === 'approved' && styles.statusApproved,
+                            recording.status === 'needs_review' && styles.statusPending,
+                            recording.status === 'discarded' && styles.statusDiscarded,
+                          ]}>
+                            <Text style={styles.statusBadgeText}>
+                              {recording.status === 'approved' ? 'Approved' : 
+                               recording.status === 'needs_review' ? 'Pending' : 
+                               recording.status === 'discarded' ? 'Discarded' : recording.status}
+                            </Text>
+                          </View>
+                        </View>
+                        <Image
+                          source={speciesImageMap[recording.species || recording.predictedSpecies] || placeholderImage}
+                          style={styles.recordingImage}
+                        />
+                      </View>
+                      
+                      <View style={styles.recordingDetails}>
+                        <View style={styles.recordingDetailRow}>
+                          <Text style={styles.recordingDetailLabel}>Species:</Text>
+                          <Text style={styles.recordingDetailValue}>
+                            {recording.species || recording.predictedSpecies || 'Unknown'}
                           </Text>
                         </View>
-                        {recording.status === 'verified' && (
-                          <View style={styles.verifiedBadge}>
-                            <Ionicons name="checkmark-circle" size={20} color="#4db8e8" />
+                        <View style={styles.recordingDetailRow}>
+                          <Text style={styles.recordingDetailLabel}>Date:</Text>
+                          <Text style={styles.recordingDetailValue}>{recording.timestampISO}</Text>
+                        </View>
+                        <View style={styles.recordingDetailRow}>
+                          <Text style={styles.recordingDetailLabel}>Location:</Text>
+                          <Text style={styles.recordingDetailValue}>{recording.locationCity}</Text>
+                        </View>
+                        {(recording.confidence != null || recording.aiConfidence != null) && (
+                          <View style={styles.recordingDetailRow}>
+                            <Text style={styles.recordingDetailLabel}>Confidence:</Text>
+                            <Text style={styles.recordingDetailValue}>
+                              {recording.confidence ?? recording.aiConfidence ?? 0}%
+                            </Text>
+                          </View>
+                        )}
+                        {recording.aiSpecies && recording.aiSpecies.trim() !== '' && (
+                          <View style={styles.aiPredictionSection}>
+                            <View style={styles.aiPredictionHeader}>
+                              <Ionicons name="sparkles" size={14} color="#d4ff00" />
+                              <Text style={styles.aiPredictionLabel}>AI Prediction</Text>
+                            </View>
+                            <View style={styles.aiPredictionContent}>
+                              <View style={styles.aiPredictionRow}>
+                                <Text style={styles.aiPredictionRowLabel}>Species:</Text>
+                                <Text style={styles.aiPredictionRowValue}>{recording.aiSpecies}</Text>
+                              </View>
+                              <View style={styles.aiPredictionRow}>
+                                <Text style={styles.aiPredictionRowLabel}>Confidence:</Text>
+                                <Text style={styles.aiPredictionRowValue}>
+                                  {recording.aiConfidence != null ? `${recording.aiConfidence}%` : 'N/A'}
+                                </Text>
+                              </View>
+                            </View>
+                          </View>
+                        )}
+                        {recording.notes && recording.notes.trim() !== '' && (
+                          <View style={styles.notesSection}>
+                            <Text style={styles.notesLabel}>Notes:</Text>
+                            <Text style={styles.notesText}>{recording.notes}</Text>
                           </View>
                         )}
                       </View>
-                      <Text style={styles.recordingLocation}>{recording.locationCity}</Text>
-                      <Image
-                        source={speciesImageMap[recording.predictedSpecies] || placeholderImage}
-                        style={styles.recordingImage}
-                      />
                     </View>
                   ))
                 ) : (
@@ -889,38 +976,127 @@ const styles = StyleSheet.create({
     backgroundColor: '#3d4f44',
     borderRadius: 12,
     padding: 12,
-    flexDirection: 'column',
-    gap: 8,
+    marginBottom: 8,
   },
-  recordingInfo: {
+  recordingHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 12,
+  },
+  recordingHeaderLeft: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+    flex: 1,
   },
   recordingTag: {
     backgroundColor: '#d4ff00',
-    paddingHorizontal: 10,
+    paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 6,
   },
   recordingTagText: {
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: '700',
     color: '#2d3e34',
   },
-  verifiedBadge: {
-    width: 24,
-    height: 24,
+  statusBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    backgroundColor: '#666',
   },
-  recordingLocation: {
-    fontSize: 14,
+  statusApproved: {
+    backgroundColor: '#4CAF50',
+  },
+  statusPending: {
+    backgroundColor: '#f5a623',
+  },
+  statusDiscarded: {
+    backgroundColor: '#FF6B6B',
+  },
+  statusBadgeText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  recordingImage: {
+    width: 60,
+    height: 60,
+    borderRadius: 8,
+  },
+  recordingDetails: {
+    gap: 6,
+  },
+  recordingDetailRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  recordingDetailLabel: {
+    fontSize: 13,
+    color: '#aaa',
+  },
+  recordingDetailValue: {
+    fontSize: 13,
+    color: '#fff',
+    fontWeight: '500',
+    flex: 1,
+    textAlign: 'right',
+  },
+  aiPredictionSection: {
+    backgroundColor: 'rgba(212, 255, 0, 0.1)',
+    borderRadius: 8,
+    padding: 10,
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(212, 255, 0, 0.3)',
+  },
+  aiPredictionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginBottom: 8,
+  },
+  aiPredictionLabel: {
+    fontSize: 12,
+    color: '#d4ff00',
+    fontWeight: '600',
+  },
+  aiPredictionContent: {
+    gap: 4,
+  },
+  aiPredictionRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  aiPredictionRowLabel: {
+    fontSize: 13,
+    color: '#aaa',
+  },
+  aiPredictionRowValue: {
+    fontSize: 13,
     color: '#fff',
     fontWeight: '500',
   },
-  recordingImage: {
-    width: '100%',
-    height: 120,
-    borderRadius: 8,
+  aiPredictionText: {
+    fontSize: 13,
+    color: '#fff',
+  },
+  notesSection: {
+    marginTop: 4,
+  },
+  notesLabel: {
+    fontSize: 12,
+    color: '#aaa',
+    marginBottom: 2,
+  },
+  notesText: {
+    fontSize: 13,
+    color: '#fff',
+    fontStyle: 'italic',
   },
   noRecordingsText: {
     fontSize: 14,

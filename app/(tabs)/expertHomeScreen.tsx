@@ -1,5 +1,6 @@
 // expertHomeScreen.tsx
 import { Ionicons } from "@expo/vector-icons";
+import NetInfo from "@react-native-community/netinfo";
 import { useRouter } from "expo-router";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { collection, doc, getCountFromServer, getDoc, query, where } from "firebase/firestore";
@@ -14,6 +15,15 @@ export default function ExpertHomeScreen() {
   const [lastName, setLastName] = useState<string | null>(null);
   const [menuVisible, setMenuVisible] = useState(false);
   const [pendingReviews, setPendingReviews] = useState(0);
+  const [isConnected, setIsConnected] = useState<boolean | null>(true);
+
+  // Network status listener
+  useEffect(() => {
+    const unsubscribe = NetInfo.addEventListener(state => {
+      setIsConnected(state.isConnected);
+    });
+    return () => unsubscribe();
+  }, []);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (user) => {
@@ -144,7 +154,10 @@ export default function ExpertHomeScreen() {
 
           <View style={styles.bottomSection}>
             <Text style={styles.status}>
-              Status: <Text style={{ color: "white" }}>Online</Text>
+              Status:{" "}
+              <Text style={{ color: isConnected ? "#4CAF50" : "#FF6B6B" }}>
+                {isConnected ? "Online" : "Offline"}
+              </Text>
               {pendingReviews > 0 && (
                 <Text style={styles.pendingText}> • {pendingReviews} pending reviews</Text>
               )}
@@ -196,8 +209,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  hello: { marginTop: 10, fontSize: 32, fontWeight: "400", color: "#f2f2f2ff" },
-  date: { fontSize: 32, fontWeight: "500", color: "#ccff00", marginBottom: 8 },
+  hello: { marginTop: 0, fontSize: 32, fontWeight: "400", color: "#f2f2f2ff" },
+  date: { fontSize: 30, fontWeight: "500", color: "#ccff00", marginBottom: 8 },
   
   roleBadge: {
     alignSelf: 'flex-start',

@@ -1,5 +1,6 @@
 // adminHomeScreen.tsx
 import { Ionicons } from "@expo/vector-icons";
+import NetInfo from "@react-native-community/netinfo";
 import { useRouter } from "expo-router";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { collection, doc, getCountFromServer, getDoc, query, where } from "firebase/firestore";
@@ -13,11 +14,20 @@ export default function AdminHomeScreen() {
   const [firstName, setFirstName] = useState<string | null>(null);
   const [lastName, setLastName] = useState<string | null>(null);
   const [menuVisible, setMenuVisible] = useState(false);
+  const [isConnected, setIsConnected] = useState<boolean | null>(true);
   const [stats, setStats] = useState({
     totalUsers: 0,
-    pendingReviews: 0,
+    totalRecordings: 0,
     pendingExperts: 0,
   });
+
+  // Network status listener
+  useEffect(() => {
+    const unsubscribe = NetInfo.addEventListener(state => {
+      setIsConnected(state.isConnected);
+    });
+    return () => unsubscribe();
+  }, []);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (user) => {
@@ -49,14 +59,15 @@ export default function AdminHomeScreen() {
         const rec = collection(db, 'recordings');
         const usersCol = collection(db, 'users');
         
-        const [pendingReviews, pendingExperts] = await Promise.all([
-          getCountFromServer(query(rec, where('status', '==', 'needs_review'))),
+        const [totalUsers, totalRecordings, pendingExperts] = await Promise.all([
+          getCountFromServer(usersCol),
+          getCountFromServer(rec),
           getCountFromServer(query(usersCol, where('isPendingExpert', '==', true))),
         ]);
         
         setStats({
-          totalUsers: 0, // Would need to count all users
-          pendingReviews: pendingReviews.data().count || 0,
+          totalUsers: totalUsers.data().count || 0,
+          totalRecordings: totalRecordings.data().count || 0,
           pendingExperts: pendingExperts.data().count || 0,
         });
       } catch (e) {
@@ -105,22 +116,6 @@ export default function AdminHomeScreen() {
       badge: stats.pendingExperts > 0 ? stats.pendingExperts : undefined,
     },
     {
-      icon: "time" as const,
-      label: "Reviews",
-      route: "./expert",
-      badge: stats.pendingReviews > 0 ? stats.pendingReviews : undefined,
-    },
-    {
-      icon: "map" as const,
-      label: "Map",
-      route: "./mapHistoryScreen",
-    },
-    {
-      icon: "bookmark" as const,
-      label: "History",
-      route: "./historyScreen",
-    },
-    {
       icon: "person-circle" as const,
       label: "Profile",
       route: "./profileScreen",
@@ -160,8 +155,12 @@ export default function AdminHomeScreen() {
           {/* Stats Cards */}
           <View style={styles.statsContainer}>
             <View style={styles.statCard}>
-              <Text style={styles.statNumber}>{stats.pendingReviews}</Text>
-              <Text style={styles.statLabel}>Pending Reviews</Text>
+              <Text style={styles.statNumber}>{stats.totalUsers}</Text>
+              <Text style={styles.statLabel}>Total Users</Text>
+            </View>
+            <View style={styles.statCard}>
+              <Text style={styles.statNumber}>{stats.totalRecordings}</Text>
+              <Text style={styles.statLabel}>Total Recordings</Text>
             </View>
             <View style={styles.statCard}>
               <Text style={styles.statNumber}>{stats.pendingExperts}</Text>
@@ -171,7 +170,10 @@ export default function AdminHomeScreen() {
 
           <View style={styles.bottomSection}>
             <Text style={styles.status}>
-              Status: <Text style={{ color: "white" }}>Online</Text>
+              Status:{" "}
+              <Text style={{ color: isConnected ? "#4CAF50" : "#FF6B6B" }}>
+                {isConnected ? "Online" : "Offline"}
+              </Text>
             </Text>
 
             <View style={styles.grid}>
@@ -221,7 +223,7 @@ const styles = StyleSheet.create({
   },
 
   hello: { marginTop: 10, fontSize: 32, fontWeight: "400", color: "#f2f2f2ff" },
-  date: { fontSize: 32, fontWeight: "500", color: "#ccff00", marginBottom: 8 },
+  date: { fontSize: 30, fontWeight: "500", color: "#ccff00", marginBottom: 8 },
   
   roleBadge: {
     alignSelf: 'flex-start',
@@ -232,7 +234,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 200,
+    marginBottom: 280,
   },
   roleText: {
     fontSize: 14,
