@@ -43,6 +43,7 @@ type RecordingDoc = {
   species?: string;
   confidenceScore?: number;
   notes?: string;
+  volunteerConfidenceLevel?: 'high' | 'medium' | 'low' | string;
 
   // audio info
   audioUrl?: string;
@@ -104,6 +105,8 @@ export default function ExpertSubmissionDetails() {
   const [species, setSpecies] = useState('');
   const [confidenceStr, setConfidenceStr] = useState('');
   const [notes, setNotes] = useState('');
+  const [volunteerConfidenceLevel, setVolunteerConfidenceLevel] =
+    useState<string | null>(null);
 
   const soundRef = useRef<Audio.Sound | null>(null);
   const [playing, setPlaying] = useState(false);
@@ -116,6 +119,7 @@ export default function ExpertSubmissionDetails() {
       '',
     [record]
   );
+
   const aiConfidencePct = useMemo(() => {
     const c =
       record?.ai?.confidence ??
@@ -162,7 +166,7 @@ export default function ExpertSubmissionDetails() {
 
         setSpecies(volunteerSpecies);
 
-        const volunteerConf =
+        const volunteerConfPct =
           data.confidenceScore != null
             ? Math.round(Number(data.confidenceScore) * 100)
             : data.expertConfidence != null
@@ -170,12 +174,20 @@ export default function ExpertSubmissionDetails() {
             : aiConfidencePct ?? '';
 
         setConfidenceStr(
-          volunteerConf === '' || volunteerConf == null
+          volunteerConfPct === '' || volunteerConfPct == null
             ? ''
-            : String(volunteerConf)
+            : String(volunteerConfPct)
         );
 
         setNotes(data.notes || data.expertNotes || '');
+
+        const volLevel =
+          (raw.volunteerConfidenceLevel as string | undefined) ??
+          (data.volunteerConfidenceLevel as string | undefined) ??
+          null;
+        setVolunteerConfidenceLevel(
+          volLevel ? volLevel.toString().trim() : null
+        );
 
         // --- Date / time ---
         let jsDate: Date | null = null;
@@ -510,6 +522,24 @@ export default function ExpertSubmissionDetails() {
     record.city ||
     null;
 
+  const volunteerConfidenceLabel = (() => {
+    const raw = volunteerConfidenceLevel
+      ? volunteerConfidenceLevel.toString().toLowerCase()
+      : '';
+
+    if (raw === 'high') return 'High';
+    if (raw === 'medium') return 'Medium';
+    if (raw === 'low') return 'Low';
+
+    if (confidenceStr) return `${confidenceStr}%`;
+    if (aiConfidencePct != null) return `${aiConfidencePct}%`;
+
+    return 'No confidence value provided by volunteer';
+  })();
+
+  const isCompleted =
+    record.status === 'approved' || record.status === 'discarded';
+
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
       <View style={styles.innerContainer}>
@@ -679,27 +709,16 @@ export default function ExpertSubmissionDetails() {
             </View>
           </View>
 
-          {/* Volunteer Identification Confidence (read-only) */}
+          {/* Volunteer Identification Confidence (read-only, High/Medium/Low) */}
           <View style={styles.card}>
             <Text style={styles.cardTitle}>
               Volunteer Identification Confidence
             </Text>
-            <TextInput
-              value={
-                confidenceStr
-                  ? confidenceStr
-                  : aiConfidencePct != null
-                  ? String(aiConfidencePct)
-                  : ''
-              }
-              editable={false}
-              selectTextOnFocus={false}
-              placeholder="No confidence value provided by volunteer"
-              placeholderTextColor="#888"
-              keyboardType="numeric"
-              maxLength={3}
-              style={[styles.textInput, styles.readOnlyFieldInput]}
-            />
+            <View style={[styles.selectInput, styles.readOnlyField]}>
+              <Text style={styles.selectInputText}>
+                {volunteerConfidenceLabel}
+              </Text>
+            </View>
           </View>
 
           {/* Volunteer Notes (read-only) */}
@@ -713,44 +732,50 @@ export default function ExpertSubmissionDetails() {
               placeholderTextColor="#fff"
               multiline
               numberOfLines={4}
-              style={[styles.textInput, styles.textArea, styles.readOnlyFieldInput]}
+              style={[
+                styles.textInput,
+                styles.textArea,
+                styles.readOnlyFieldInput,
+              ]}
             />
           </View>
 
-          {/* Action buttons */}
-          <View style={styles.actionButtons}>
-            <Pressable
-              onPress={onSave}
-              disabled={saving}
-              style={[
-                styles.approveButton,
-                saving && styles.buttonDisabled,
-              ]}
-            >
-              <Ionicons
-                name="checkmark-circle"
-                size={24}
-                color="#2d3e34"
-              />
-              <Text style={styles.approveButtonText}>Approve</Text>
-            </Pressable>
+          {/* Action buttons (hidden once completed) */}
+          {!isCompleted && (
+            <View style={styles.actionButtons}>
+              <Pressable
+                onPress={onSave}
+                disabled={saving}
+                style={[
+                  styles.approveButton,
+                  saving && styles.buttonDisabled,
+                ]}
+              >
+                <Ionicons
+                  name="checkmark-circle"
+                  size={24}
+                  color="#2d3e34"
+                />
+                <Text style={styles.approveButtonText}>Approve</Text>
+              </Pressable>
 
-            <Pressable
-              onPress={onDiscard}
-              disabled={saving}
-              style={[
-                styles.discardButton,
-                saving && styles.buttonDisabled,
-              ]}
-            >
-              <Ionicons
-                name="close-circle"
-                size={24}
-                color="#FF6B6B"
-              />
-              <Text style={styles.discardButtonText}>Discard</Text>
-            </Pressable>
-          </View>
+              <Pressable
+                onPress={onDiscard}
+                disabled={saving}
+                style={[
+                  styles.discardButton,
+                  saving && styles.buttonDisabled,
+                ]}
+              >
+                <Ionicons
+                  name="close-circle"
+                  size={24}
+                  color="#FF6B6B"
+                />
+                <Text style={styles.discardButtonText}>Discard</Text>
+              </Pressable>
+            </View>
+          )}
         </ScrollView>
       </View>
     </SafeAreaView>
@@ -869,8 +894,8 @@ const styles = StyleSheet.create({
     color: '#fff',
   },
   recordingId: {
-    fontSize: 14,          
-    color: '#fff',         
+    fontSize: 14,
+    color: '#fff',
     marginTop: 12,
     fontWeight: '500',
   },
@@ -990,10 +1015,10 @@ const styles = StyleSheet.create({
     opacity: 0.9,
   },
   readOnlyFieldInput: {
-    backgroundColor: '#3d4f44',            
-  color: '#fff',                         
-  borderWidth: 1,
-  borderColor: 'rgba(212, 255, 0, 0.3)', 
+    backgroundColor: '#3d4f44',
+    color: '#fff',
+    borderWidth: 1,
+    borderColor: 'rgba(212, 255, 0, 0.3)',
   },
   speciesOptions: {
     marginTop: 8,

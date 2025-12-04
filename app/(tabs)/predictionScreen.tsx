@@ -2,29 +2,26 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
 import { Audio } from 'expo-av';
-import Constants from 'expo-constants';
 import * as FileSystem from 'expo-file-system/legacy';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   ImageBackground,
-  NativeModules,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  View,
+  View
 } from 'react-native';
 import NavigationMenu from '../../components/NavigationMenu';
 
 // Firebase
 import { signInWithEmailAndPassword } from 'firebase/auth';
 import { collection, doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
-import app, { auth, db } from '../firebaseConfig';
 import API_CONFIG from '../../services/config';
-import { mlAPI, recordingsAPI } from '../../services/api';
+import app, { auth, db } from '../firebaseConfig';
 
 type TopItem = { species: string; confidence: number };
 
@@ -90,9 +87,15 @@ async function getCityFromCoords(lat: number, lon: number): Promise<string> {
       `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`
     );
     const data = await response.json();
-    const city = data.address?.city || data.address?.town || data.address?.village || 'Unknown Location';
+
+    const city =
+      data.address?.city || data.address?.town || data.address?.village || '';
     const state = data.address?.state || '';
-    return state ? `${city}, ${state}` : city;
+
+    if (city && state) return `${city}, ${state}`;
+    if (city) return city;
+    if (state) return state;
+    return 'Unknown Location';
   } catch (error) {
     console.error('Geocoding error:', error);
     return 'Unknown Location';
@@ -104,15 +107,15 @@ async function getHomeScreen(): Promise<string> {
   try {
     const user = auth.currentUser;
     if (!user) return './volunteerHomeScreen';
-    
+
     const userDoc = await getDoc(doc(db, 'users', user.uid));
     const userData = userDoc.data() || {};
-    
+
     // Check both role field (string) and boolean fields for compatibility
     const roleStr = (userData.role || '').toString().toLowerCase();
     const isAdmin = userData.isAdmin === true || roleStr === 'admin';
     const isExpert = userData.isExpert === true || roleStr === 'expert';
-    
+
     if (isAdmin) return './adminHomeScreen';
     if (isExpert) return './expertHomeScreen';
     return './volunteerHomeScreen';
@@ -133,15 +136,16 @@ export default function PredictionScreen() {
   const [loading, setLoading] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
   const [predictedSpecies, setPredictedSpecies] = useState('Bullfrog');
-  const [confidenceInput, setConfidenceInput] = useState('');
   const [notes, setNotes] = useState('');
   const [top3, setTop3] = useState<TopItem[]>([]);
   const [role, setRole] = useState<'volunteer' | 'expert' | 'admin' | null>(null);
   const [submitAsExpert, setSubmitAsExpert] = useState(false);
-  const [showEditOptions, setShowEditOptions] = useState(false);
   const [locationCity, setLocationCity] = useState('Loading location...');
   const [homeScreen, setHomeScreen] = useState<string>('./volunteerHomeScreen');
   const [menuVisible, setMenuVisible] = useState(false);
+  const [volunteerConfidence, setVolunteerConfidence] = useState<
+    '' | 'high' | 'medium' | 'low'
+  >('');
   const mountedRef = useRef(true);
 
   // Determine the correct home screen on mount
@@ -201,10 +205,9 @@ export default function PredictionScreen() {
           isFinite(lat) ? lat : undefined,
           isFinite(lon) ? lon : undefined
         );
-        const pct = toPercent(res.confidence);
         if (!mountedRef.current) return;
+
         setPredictedSpecies(res.species || 'Bullfrog');
-        setConfidenceInput(String(Math.round(pct)));
         setTop3(
           (res.top3 ?? []).map((t: any) => ({
             species: t.species ?? t[0],
@@ -238,7 +241,10 @@ export default function PredictionScreen() {
       if (sound) {
         await sound.replayAsync();
       } else {
-        const { sound: newSound } = await Audio.Sound.createAsync({ uri: audioUri }, { shouldPlay: true });
+        const { sound: newSound } = await Audio.Sound.createAsync(
+          { uri: audioUri },
+          { shouldPlay: true }
+        );
         setSound(newSound);
       }
     } catch (error) {
@@ -247,11 +253,14 @@ export default function PredictionScreen() {
   };
 
   const handleSubmit = async () => {
-    const score = parseInt(confidenceInput, 10);
-    if (Number.isNaN(score) || score < 0 || score > 100) {
-      Alert.alert('Invalid Confidence', 'Please enter an integer between 0 and 100.');
+    if (!volunteerConfidence) {
+      Alert.alert(
+        'Missing Confidence Level',
+        'Please select your Volunteer Confidence Level (High, Medium, or Low).'
+      );
       return;
     }
+
     if (!audioUri) {
       Alert.alert('No recording', 'Please record audio first.');
       return;
@@ -268,7 +277,9 @@ export default function PredictionScreen() {
       const firstName = profile?.firstName ?? '';
       const lastName = profile?.lastName ?? '';
       const displayName =
-        profile?.displayName ?? user.displayName ?? `${firstName || ''} ${lastName || ''}`.trim();
+        profile?.displayName ??
+        user.displayName ??
+        `${firstName || ''} ${lastName || ''}`.trim();
       const userEmail = user.email ?? '';
 
       const info = await FileSystem.getInfoAsync(audioUri);
@@ -278,9 +289,11 @@ export default function PredictionScreen() {
       }
       const contentType = guessMime(audioUri);
       const ext =
-        contentType === 'audio/wav' ? '.wav' :
-        contentType === 'audio/m4a' ? '.m4a' :
-        '.mp3';
+        contentType === 'audio/wav'
+          ? '.wav'
+          : contentType === 'audio/m4a'
+          ? '.m4a'
+          : '.mp3';
 
       const fileName = makeUniqueFileName(ext);
       // Path must be uploaded_audios/{uid}/{fileName} to match storage rules
@@ -288,7 +301,9 @@ export default function PredictionScreen() {
 
       const bucket = (app.options as any).storageBucket as string | undefined;
       if (!bucket) throw new Error('Missing Firebase storage bucket in config.');
-      const uploadUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o?name=${encodeURIComponent(filePath)}`;
+      const uploadUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o?name=${encodeURIComponent(
+        filePath
+      )}`;
 
       const result = await FileSystem.uploadAsync(uploadUrl, audioUri, {
         httpMethod: 'POST',
@@ -309,13 +324,22 @@ export default function PredictionScreen() {
       const nowIso = new Date().toISOString();
       const audioURL = `/get-audio/${fileName}`;
 
+      // Normalize top3 confidences to 0–1 for ai block
+      const normalizedTop3 = (top3 || []).map((t) => ({
+        species: t.species,
+        confidence:
+          t.confidence > 1
+            ? Math.max(0, Math.min(1, t.confidence / 100))
+            : t.confidence,
+      }));
+
+      const primaryConf01 =
+        normalizedTop3[0]?.confidence ?? 0; // AI confidence (0–1) for main prediction
+
       const aiBlock = {
         species: predictedSpecies || '',
-        confidence: score / 100,
-        top3: (top3 || []).map((t) => ({
-          species: t.species,
-          confidence: t.confidence > 1 ? Math.max(0, Math.min(1, t.confidence / 100)) : t.confidence,
-        })),
+        confidence: primaryConf01,
+        top3: normalizedTop3,
       };
 
       const baseDoc = {
@@ -324,10 +348,12 @@ export default function PredictionScreen() {
         userId: user.uid,
         predictedSpecies: predictedSpecies || '',
         species: '',
-        confidenceScore: score / 100,
+        // Store AI numeric confidence (0–1)
+        confidenceScore: primaryConf01,
         // Explicit AI prediction fields for history/map screens
         aiSpecies: predictedSpecies || '',
-        aiConfidence: score / 100,
+        aiConfidence: primaryConf01,
+        // Keep original top3 (percent) for UI convenience
         top3,
         ai: aiBlock,
         fileName,
@@ -335,6 +361,7 @@ export default function PredictionScreen() {
         contentType,
         audioURL,
         notes: notes || '',
+        volunteerConfidenceLevel: volunteerConfidence, // Volunteer Confidence Level
         location: {
           lat: Number.isFinite(lat) ? lat : 0,
           lng: Number.isFinite(lon) ? lon : 0,
@@ -359,12 +386,15 @@ export default function PredictionScreen() {
           status: 'approved',
           expertReview: {
             species: predictedSpecies || '',
-            confidence: score / 100,
+            confidence: primaryConf01,
             reviewer: { uid: user.uid, firstName, lastName },
             reviewedAt: serverTimestamp(),
           },
         });
-        Alert.alert('Submitted', 'Your recording was saved and approved as an expert submission.');
+        Alert.alert(
+          'Submitted',
+          'Your recording was saved and approved as an expert submission.'
+        );
       } else {
         await setDoc(recRef, {
           ...baseDoc,
@@ -373,7 +403,11 @@ export default function PredictionScreen() {
         Alert.alert('Submitted', 'Your recording was saved');
       }
     } catch (err: any) {
-      console.log('Submit failed details:', { name: err?.name, code: err?.code, message: err?.message });
+      console.log('Submit failed details:', {
+        name: err?.name,
+        code: err?.code,
+        message: err?.message,
+      });
       Alert.alert('Submit failed', err?.message ?? String(err));
     } finally {
       setLoading(false);
@@ -395,18 +429,24 @@ export default function PredictionScreen() {
         <View style={[styles.background, styles.solidBackground]} />
       )}
 
-      <ScrollView 
+      <ScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
         {/* Header */}
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.push(homeScreen as any)} style={styles.iconButton}>
+          <TouchableOpacity
+            onPress={() => router.push(homeScreen as any)}
+            style={styles.iconButton}
+          >
             <Ionicons name="arrow-back" size={28} color="#333" />
           </TouchableOpacity>
 
-          <TouchableOpacity onPress={() => setMenuVisible(true)} style={styles.iconButton}>
+          <TouchableOpacity
+            onPress={() => setMenuVisible(true)}
+            style={styles.iconButton}
+          >
             <Ionicons name="menu" size={28} color="#333" />
           </TouchableOpacity>
         </View>
@@ -430,7 +470,9 @@ export default function PredictionScreen() {
             <Text style={styles.topHeader}>Model suggestions</Text>
             {top3.map((t, i) => (
               <View key={`${t.species}-${i}`} style={styles.topRow}>
-                <Text style={styles.topRowSpecies}>{i + 1}. {t.species}</Text>
+                <Text style={styles.topRowSpecies}>
+                  {i + 1}. {t.species}
+                </Text>
                 <Text style={styles.topRowConf}>{Math.round(t.confidence)}%</Text>
               </View>
             ))}
@@ -455,9 +497,7 @@ export default function PredictionScreen() {
                 isFinite(lat) ? lat : undefined,
                 isFinite(lon) ? lon : undefined
               );
-              const pct = toPercent(res.confidence);
               setPredictedSpecies(res.species || 'Bullfrog');
-              setConfidenceInput(String(Math.round(pct)));
               setTop3(
                 (res.top3 ?? []).map((t: any) => ({
                   species: t.species ?? t[0],
@@ -478,61 +518,77 @@ export default function PredictionScreen() {
         <View style={styles.bottomCard}>
           {/* Location Button */}
           <TouchableOpacity style={styles.cardButton}>
-            <Text style={styles.cardButtonText}>{locationCity}</Text>
+            <Text style={styles.cardButtonText}>Location: {locationCity}</Text>
           </TouchableOpacity>
 
-          {/* Edit Button */}
-          <TouchableOpacity 
-            style={[styles.cardButton, styles.editButton]}
-            onPress={() => setShowEditOptions(!showEditOptions)}
-          >
-            <Text style={styles.editButtonText}>edit</Text>
-          </TouchableOpacity>
+          {/* Edit Options Card ALWAYS visible */}
+          <View style={styles.editOptionsCard}>
+            {/* Species Picker Label */}
+            <Text style={styles.sectionLabel}>Confirm Frog Species:</Text>
 
-          {/* Edit Options Card (conditionally shown below edit button) */}
-          {showEditOptions && (
-            <View style={styles.editOptionsCard}>
-              {/* Species Picker */}
-              <View style={styles.pickerContainer}>
-                <Picker
-                  selectedValue={predictedSpecies}
-                  onValueChange={(itemValue) => setPredictedSpecies(itemValue)}
-                  style={styles.picker}
-                >
-                  {Object.keys(speciesImageMap).map((species) => (
-                    <Picker.Item key={species} label={species} value={species} />
-                  ))}
-                </Picker>
-              </View>
-
-              {/* Confidence Score */}
-              <TextInput
-                style={styles.editInput}
-                value={confidenceInput}
-                onChangeText={setConfidenceInput}
-                placeholder="Confidence Score"
-                placeholderTextColor="#999"
-                keyboardType="number-pad"
-              />
-
-              {/* Notes */}
-              <TextInput
-                style={[styles.editInput, styles.notesInput]}
-                value={notes}
-                onChangeText={setNotes}
-                placeholder="Notes..."
-                placeholderTextColor="#999"
-                multiline
-              />
+            {/* Species Picker */}
+            <View style={styles.pickerContainer}>
+              <Picker
+                selectedValue={predictedSpecies}
+                onValueChange={(itemValue) => setPredictedSpecies(itemValue)}
+                style={styles.picker}
+                dropdownIconColor="#ccff00"
+              >
+                {Object.keys(speciesImageMap).map((species) => (
+                  <Picker.Item key={species} label={species} value={species} />
+                ))}
+              </Picker>
             </View>
-          )}
+
+            {/* Volunteer Confidence Level */}
+            <Text style={styles.sectionLabel}>Confirm Confidence Level:</Text>
+            <View style={styles.confidenceChipsRow}>
+              {(
+                [
+                  { key: 'high', label: 'High' },
+                  { key: 'medium', label: 'Medium' },
+                  { key: 'low', label: 'Low' },
+                ] as const
+              ).map((opt) => (
+                <TouchableOpacity
+                  key={opt.key}
+                  style={[
+                    styles.confidenceChip,
+                    volunteerConfidence === opt.key && styles.confidenceChipSelected,
+                  ]}
+                  onPress={() => setVolunteerConfidence(opt.key)}
+                >
+                  <Text
+                    style={[
+                      styles.confidenceChipText,
+                      volunteerConfidence === opt.key &&
+                        styles.confidenceChipTextSelected,
+                    ]}
+                  >
+                    {opt.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {/* Notes */}
+            <Text style={styles.sectionLabel}>User Notes (Optional):</Text>
+            <TextInput
+              style={[styles.editInput, styles.notesInput]}
+              value={notes}
+              onChangeText={setNotes}
+              placeholder="Notes..."
+              placeholderTextColor="#999"
+              multiline
+            />
+          </View>
 
           {/* Submit Button */}
-          <TouchableOpacity 
+          <TouchableOpacity
             style={[styles.cardButton, styles.submitButton]}
             onPress={handleSubmit}
           >
-            <Text style={styles.submitButtonText}>submit for approval</Text>
+            <Text style={styles.submitButtonText}>Submit for Approval</Text>
           </TouchableOpacity>
         </View>
 
@@ -540,8 +596,11 @@ export default function PredictionScreen() {
         {(role === 'expert' || role === 'admin') && (
           <View style={styles.expertBox}>
             <Text style={styles.expertTitle}>Expert Options</Text>
-            <TouchableOpacity onPress={() => setSubmitAsExpert(v => !v)} style={styles.expertCheckbox}>
-              <Text>{submitAsExpert ? '☑' : '☐'} Submit as expert (skip review)</Text>
+            <TouchableOpacity
+              onPress={() => setSubmitAsExpert((v) => !v)}
+              style={styles.expertCheckbox}
+            >
+              <Text>{submitAsExpert ? '☑' : '☐'} Submit as Expert (Skip Review)</Text>
             </TouchableOpacity>
             <Text style={styles.expertNote}>
               If enabled, this submission is immediately marked approved with your expert review.
@@ -561,10 +620,7 @@ async function callPredict(uri: string, lat?: number, lon?: number) {
   if (typeof lat === 'number') form.append('lat', String(lat));
   if (typeof lon === 'number') form.append('lon', String(lon));
 
-  const endpoints = [
-    `${API_BASE}/predict`,
-    `${API_BASE}/ml/predict`,
-  ];
+  const endpoints = [`${API_BASE}/predict`, `${API_BASE}/ml/predict`];
 
   let lastErr: any = null;
 
@@ -573,7 +629,7 @@ async function callPredict(uri: string, lat?: number, lon?: number) {
       if (!isHttpUrl(url)) continue;
       console.log('[predict] POST', url);
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 15_000); // Reduced timeout to 15s
+      const timer = setTimeout(() => controller.abort(), 15_000);
       const resp = await fetch(url, { method: 'POST', body: form, signal: controller.signal });
       clearTimeout(timer);
 
@@ -592,27 +648,37 @@ async function callPredict(uri: string, lat?: number, lon?: number) {
       lastErr = e;
     }
   }
-  
-  // If all endpoints fail, show an alert and return mock data for testing
+
   console.warn('[predict] All endpoints failed, using mock prediction for testing');
   Alert.alert(
     'Server Unavailable',
     'Could not connect to prediction server. Using mock prediction for testing.\n\nTo fix: Make sure your backend server is running and your phone is on the same network.',
     [{ text: 'OK' }]
   );
-  
-  // Return mock prediction data
-  const mockSpecies = ['Bullfrog', 'Green Frog', 'American Toad', 'Wood Frog', 'Northern Spring Peeper'];
+
+  const mockSpecies = [
+    'Bullfrog',
+    'Green Frog',
+    'American Toad',
+    'Wood Frog',
+    'Northern Spring Peeper',
+  ];
   const randomSpecies = mockSpecies[Math.floor(Math.random() * mockSpecies.length)];
   const mockConfidence = 0.75 + Math.random() * 0.2; // 75-95%
-  
+
   return {
     species: randomSpecies,
     confidence: mockConfidence,
     top3: [
       { species: randomSpecies, confidence: mockConfidence },
-      { species: mockSpecies[(mockSpecies.indexOf(randomSpecies) + 1) % mockSpecies.length], confidence: mockConfidence * 0.6 },
-      { species: mockSpecies[(mockSpecies.indexOf(randomSpecies) + 2) % mockSpecies.length], confidence: mockConfidence * 0.3 },
+      {
+        species: mockSpecies[(mockSpecies.indexOf(randomSpecies) + 1) % mockSpecies.length],
+        confidence: mockConfidence * 0.6,
+      },
+      {
+        species: mockSpecies[(mockSpecies.indexOf(randomSpecies) + 2) % mockSpecies.length],
+        confidence: mockConfidence * 0.3,
+      },
     ],
   };
 }
@@ -739,19 +805,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   cardButtonText: {
-    fontSize: 20,
-    fontWeight: '500',
+    fontSize: 14,
+    fontWeight: '800',
     color: '#000000ff',
-  },
-  editButton: {
-    backgroundColor: '#4C6052',
-    borderWidth: 2,
-    borderColor: '#ccff00',
-  },
-  editButtonText: {
-    fontSize: 22,
-    fontWeight: '400',
-    color: '#fff',
   },
   editOptionsCard: {
     backgroundColor: '#212c26ff',
@@ -762,11 +818,49 @@ const styles = StyleSheet.create({
   pickerContainer: {
     backgroundColor: '#1b1b1bff',
     borderRadius: 10,
-    marginBottom: 12,
+    marginBottom: 15,
     overflow: 'hidden',
+    borderWidth: 2,
+    borderColor: '#ccff00',
   },
   picker: {
     width: '100%',
+    color: '#ffffff',
+    height: 52,
+  },
+  sectionLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#f2f2f2ff',
+    marginBottom: 6,
+  },
+  confidenceChipsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  confidenceChip: {
+    flex: 1,
+    marginHorizontal: 4,
+    paddingVertical: 10,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#555',
+    alignItems: 'center',
+    backgroundColor: '#1b1b1bff',
+  },
+  confidenceChipSelected: {
+    backgroundColor: '#ccff00',
+    borderColor: '#ccff00',
+  },
+  confidenceChipText: {
+    color: '#f2f2f2ff',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  confidenceChipTextSelected: {
+    color: '#2d3e34',
+    fontWeight: '700',
   },
   editInput: {
     backgroundColor: '#1b1b1bff',
