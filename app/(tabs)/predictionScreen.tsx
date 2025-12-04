@@ -283,7 +283,8 @@ export default function PredictionScreen() {
         '.mp3';
 
       const fileName = makeUniqueFileName(ext);
-      const filePath = `uploaded_audios/${fileName}`;
+      // Path must be uploaded_audios/{uid}/{fileName} to match storage rules
+      const filePath = `uploaded_audios/${user.uid}/${fileName}`;
 
       const bucket = (app.options as any).storageBucket as string | undefined;
       if (!bucket) throw new Error('Missing Firebase storage bucket in config.');
