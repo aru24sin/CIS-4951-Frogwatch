@@ -5,7 +5,7 @@ import { collection, limit, onSnapshot, orderBy, query, where } from 'firebase/f
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import NavigationMenu from '../../../components/NavigationMenu';
-import { db } from '../../firebaseConfig';
+import { auth, db } from '../../firebaseConfig';
 
 type Rec = {
   id: string;
