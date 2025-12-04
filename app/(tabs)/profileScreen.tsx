@@ -14,6 +14,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import NavigationMenu from '../../components/NavigationMenu';
 import { auth, db } from '../firebaseConfig';
 
@@ -111,17 +112,21 @@ export default function ProfileScreen() {
     try {
       if (!auth.currentUser) return;
 
-      const updates: any = {
-        firstName: editFirstName,
-        lastName: editLastName,
-        username: editUsername,
-        dateOfBirth: editDOB,
-        phoneNumber: editPhone,
-        bio: editBio,
-        location: editLocation,
-      };
+      // Build updates object, only including defined values
+      const updates: Record<string, any> = {};
+      
+      if (editFirstName !== undefined && editFirstName !== null) updates.firstName = editFirstName;
+      if (editLastName !== undefined && editLastName !== null) updates.lastName = editLastName;
+      if (editUsername !== undefined && editUsername !== null) updates.username = editUsername;
+      if (editDOB !== undefined && editDOB !== null) updates.dateOfBirth = editDOB;
+      if (editPhone !== undefined && editPhone !== null) updates.phoneNumber = editPhone;
+      if (editBio !== undefined && editBio !== null) updates.bio = editBio;
+      if (editLocation !== undefined && editLocation !== null) updates.location = editLocation;
 
-      await updateDoc(doc(db, 'users', auth.currentUser.uid), updates);
+      // Only update if there are changes
+      if (Object.keys(updates).length > 0) {
+        await updateDoc(doc(db, 'users', auth.currentUser.uid), updates);
+      }
 
       // Update password if provided
       if (editPassword && editPassword.length >= 6) {
@@ -171,26 +176,27 @@ export default function ProfileScreen() {
   }
 
   return (
-    <View style={styles.container}>
-      <NavigationMenu isVisible={menuVisible} onClose={() => setMenuVisible(false)} />
-      
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.push(homeScreen as any)} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={28} color="#fff" />
-        </TouchableOpacity>
+    <SafeAreaView style={styles.container} edges={['bottom']}>
+      <View style={styles.innerContainer}>
+        <NavigationMenu isVisible={menuVisible} onClose={() => setMenuVisible(false)} />
+        
+        {/* Header */}
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => router.push(homeScreen as any)} style={styles.backButton}>
+            <Ionicons name="arrow-back" size={28} color="#fff" />
+          </TouchableOpacity>
 
-        <View>
-          <Text style={styles.headerTitle}>Profile</Text>
-          <View style={styles.underline} />
+          <View>
+            <Text style={styles.headerTitle}>Profile</Text>
+            <View style={styles.underline} />
+          </View>
+
+          <TouchableOpacity onPress={() => setMenuVisible(true)} style={styles.menuButton}>
+            <Ionicons name="menu" size={28} color="#fff" />
+          </TouchableOpacity>
         </View>
 
-        <TouchableOpacity onPress={() => setMenuVisible(true)} style={styles.menuButton}>
-          <Ionicons name="menu" size={28} color="#fff" />
-        </TouchableOpacity>
-      </View>
-
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+        <ScrollView style={styles.content} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         {/* Profile Picture */}
         <View style={styles.profilePictureContainer}>
           <View style={styles.profilePicture}>
@@ -382,7 +388,8 @@ export default function ProfileScreen() {
           )}
         </View>
       </ScrollView>
-    </View>
+      </View>
+    </SafeAreaView>
   );
 }
 
@@ -390,6 +397,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#3F5A47',
+  },
+  innerContainer: {
+    flex: 1,
   },
   header: {
     flexDirection: 'row',
@@ -430,6 +440,9 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     paddingHorizontal: 20,
+  },
+  scrollContent: {
+    paddingBottom: 100,
   },
   profilePictureContainer: {
     alignItems: 'center',

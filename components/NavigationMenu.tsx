@@ -3,39 +3,34 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { signOut } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
   Dimensions,
-  Modal,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
 import { auth, db } from '../app/firebaseConfig';
+import { checkRoleFromData } from '../services/getUserRole';
 
-type NavigationMenuProps = {
+const { width } = Dimensions.get('window');
+
+type Props = {
   isVisible: boolean;
   onClose: () => void;
 };
 
-type MenuItem = {
-  icon: keyof typeof Ionicons.glyphMap;
-  label: string;
-  route: string;
-  roles?: ('volunteer' | 'expert' | 'admin')[];
-};
+type UserRole = 'volunteer' | 'expert' | 'admin';
 
-const { width } = Dimensions.get('window');
-
-export default function NavigationMenu({ isVisible, onClose }: NavigationMenuProps) {
+export default function NavigationMenu({ isVisible, onClose }: Props) {
   const router = useRouter();
-  const [slideAnim] = useState(new Animated.Value(width));
-  const [userRole, setUserRole] = useState<'volunteer' | 'expert' | 'admin'>('volunteer');
-  const [userName, setUserName] = useState<string>('');
-  const [userEmail, setUserEmail] = useState<string>('');
+  const slideAnim = useRef(new Animated.Value(width)).current;
+  const [userName, setUserName] = useState('User');
+  const [userEmail, setUserEmail] = useState('');
+  const [userRole, setUserRole] = useState<UserRole>('volunteer');
 
   useEffect(() => {
     loadUserData();
@@ -71,25 +66,16 @@ export default function NavigationMenu({ isVisible, onClose }: NavigationMenuPro
         const lastName = data.lastName || data.lastname || '';
         setUserName(`${firstName} ${lastName}`.trim() || 'User');
         
-        // Check both role field (string) and boolean fields for compatibility
-        const userRoleStr = data.role?.toLowerCase() || '';
-        const isAdmin = data.isAdmin === true || userRoleStr === 'admin';
-        const isExpert = data.isExpert === true || userRoleStr === 'expert';
-        
-        if (isAdmin) {
-          setUserRole('admin');
-        } else if (isExpert) {
-          setUserRole('expert');
-        } else {
-          setUserRole('volunteer');
-        }
+        // Use centralized role checking
+        const roleInfo = checkRoleFromData(data);
+        setUserRole(roleInfo.role);
       }
     } catch (error) {
       console.error('Error loading user data:', error);
     }
   };
 
-  const getHomeRoute = () => {
+  const getHomeScreen = () => {
     switch (userRole) {
       case 'admin': return './adminHomeScreen';
       case 'expert': return './expertHomeScreen';
@@ -97,27 +83,39 @@ export default function NavigationMenu({ isVisible, onClose }: NavigationMenuPro
     }
   };
 
-  const menuItems: MenuItem[] = [
-    { icon: 'home', label: 'Home', route: getHomeRoute() },
+  const getRoleBadgeColor = () => {
+    switch (userRole) {
+      case 'admin': return '#FF6B6B';
+      case 'expert': return '#4db8e8';
+      default: return '#4CAF50';
+    }
+  };
+
+  const getRoleLabel = () => {
+    switch (userRole) {
+      case 'admin': return 'Admin';
+      case 'expert': return 'Expert';
+      default: return 'Volunteer';
+    }
+  };
+
+  const menuItems = [
+    { icon: 'home', label: 'Home', route: getHomeScreen(), roles: ['volunteer', 'expert', 'admin'] },
     { icon: 'radio-button-on', label: 'Recording', route: './recordScreen', roles: ['volunteer', 'expert'] },
     { icon: 'bookmark', label: 'History', route: './historyScreen', roles: ['volunteer', 'expert'] },
-    { icon: 'map', label: 'Map', route: './mapHistoryScreen', roles: ['volunteer', 'expert'] },
+    { icon: 'map', label: 'Map', route: './mapHistoryScreen', roles: ['volunteer', 'expert', 'admin'] },
     { icon: 'time', label: 'Review Queue', route: './expert', roles: ['expert', 'admin'] },
     { icon: 'people', label: 'Users', route: './usersScreen', roles: ['admin'] },
-    { icon: 'person-circle', label: 'Profile', route: './profileScreen' },
-    { icon: 'settings', label: 'Settings', route: './settingsScreen' },
+    { icon: 'person-circle', label: 'Profile', route: './profileScreen', roles: ['volunteer', 'expert', 'admin'] },
+    { icon: 'chatbubble-ellipses', label: 'Feedback', route: './feedbackScreen', roles: ['volunteer', 'expert', 'admin'] },
+    { icon: 'settings', label: 'Settings', route: './settingsScreen', roles: ['volunteer', 'expert', 'admin'] },
   ];
 
-  const filteredMenuItems = menuItems.filter(item => {
-    if (!item.roles) return true;
-    return item.roles.includes(userRole);
-  });
+  const filteredMenuItems = menuItems.filter(item => item.roles.includes(userRole));
 
   const handleNavigation = (route: string) => {
     onClose();
-    setTimeout(() => {
-      router.push(route as any);
-    }, 100);
+    router.push(route as any);
   };
 
   const handleLogout = () => {
@@ -144,188 +142,136 @@ export default function NavigationMenu({ isVisible, onClose }: NavigationMenuPro
     );
   };
 
-  const getRoleBadgeColor = () => {
-    switch (userRole) {
-      case 'admin': return '#FF6B6B';
-      case 'expert': return '#4db8e8';
-      default: return '#4CAF50';
-    }
-  };
-
-  const getRoleLabel = () => {
-    switch (userRole) {
-      case 'admin': return 'Admin';
-      case 'expert': return 'Expert';
-      default: return 'Volunteer';
-    }
-  };
+  if (!isVisible) return null;
 
   return (
-    <Modal
-      visible={isVisible}
-      transparent
-      animationType="none"
-      onRequestClose={onClose}
-    >
-      <View style={styles.overlay}>
-        <TouchableOpacity style={styles.overlayTouch} onPress={onClose} activeOpacity={1} />
-        
-        <Animated.View
-          style={[
-            styles.menuContainer,
-            { transform: [{ translateX: slideAnim }] },
-          ]}
-        >
-          {/* Header with user info */}
-          <View style={styles.header}>
-            <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-              <Ionicons name="close" size={28} color="#fff" />
-            </TouchableOpacity>
-            
-            <View style={styles.userInfo}>
-              <View style={styles.avatarContainer}>
-                <Ionicons name="person" size={40} color="#d4ff00" />
-              </View>
-              <View style={styles.userDetails}>
-                <Text style={styles.userName} numberOfLines={1}>{userName}</Text>
-                <Text style={styles.userEmail} numberOfLines={1}>{userEmail}</Text>
-                <View style={[styles.roleBadge, { backgroundColor: getRoleBadgeColor() }]}>
-                  <Text style={styles.roleText}>{getRoleLabel()}</Text>
-                </View>
-              </View>
-            </View>
+    <View style={styles.overlay}>
+      <TouchableOpacity style={styles.backdrop} onPress={onClose} activeOpacity={1} />
+      <Animated.View style={[styles.menu, { transform: [{ translateX: slideAnim }] }]}>
+        {/* User Info */}
+        <View style={styles.userSection}>
+          <View style={styles.avatar}>
+            <Ionicons name="person" size={40} color="#fff" />
           </View>
+          <Text style={styles.userName}>{userName}</Text>
+          <Text style={styles.userEmail}>{userEmail}</Text>
+          <View style={[styles.roleBadge, { backgroundColor: getRoleBadgeColor() }]}>
+            <Text style={styles.roleText}>{getRoleLabel()}</Text>
+          </View>
+        </View>
 
-          {/* Menu Items */}
-          <View style={styles.menuItems}>
-            {filteredMenuItems.map((item, index) => (
-              <TouchableOpacity
-                key={index}
-                style={styles.menuItem}
-                onPress={() => handleNavigation(item.route)}
-              >
-                <Ionicons name={item.icon} size={24} color="#d4ff00" />
-                <Text style={styles.menuItemText}>{item.label}</Text>
-                <Ionicons name="chevron-forward" size={20} color="#888" />
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          {/* Logout Button */}
-          <View style={styles.footer}>
-            <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-              <Ionicons name="log-out-outline" size={24} color="#FF6B6B" />
-              <Text style={styles.logoutText}>Logout</Text>
+        {/* Menu Items */}
+        <View style={styles.menuItems}>
+          {filteredMenuItems.map((item, index) => (
+            <TouchableOpacity
+              key={index}
+              style={styles.menuItem}
+              onPress={() => handleNavigation(item.route)}
+            >
+              <Ionicons name={item.icon as any} size={24} color="#d4ff00" />
+              <Text style={styles.menuItemText}>{item.label}</Text>
             </TouchableOpacity>
-          </View>
-        </Animated.View>
-      </View>
-    </Modal>
+          ))}
+        </View>
+
+        {/* Logout */}
+        <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+          <Ionicons name="log-out-outline" size={24} color="#FF6B6B" />
+          <Text style={styles.logoutText}>Logout</Text>
+        </TouchableOpacity>
+      </Animated.View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   overlay: {
-    flex: 1,
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 1000,
+  },
+  backdrop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    flexDirection: 'row',
   },
-  overlayTouch: {
-    flex: 1,
-  },
-  menuContainer: {
-    width: width * 0.8,
-    maxWidth: 320,
-    backgroundColor: '#2d3e34',
+  menu: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    width: Math.min(width * 0.8, 320),
     height: '100%',
-    shadowColor: '#000',
-    shadowOffset: { width: -2, height: 0 },
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
-    elevation: 10,
-  },
-  header: {
+    backgroundColor: '#2d3e34',
     paddingTop: 60,
     paddingHorizontal: 20,
-    paddingBottom: 20,
+  },
+  userSection: {
+    alignItems: 'center',
+    paddingBottom: 24,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(212, 255, 0, 0.2)',
-  },
-  closeButton: {
-    alignSelf: 'flex-end',
-    padding: 8,
     marginBottom: 16,
   },
-  userInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  avatarContainer: {
-    width: 70,
-    height: 70,
-    borderRadius: 35,
-    backgroundColor: 'rgba(212, 255, 0, 0.15)',
+  avatar: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: 'rgba(212, 255, 0, 0.2)',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 16,
-  },
-  userDetails: {
-    flex: 1,
+    marginBottom: 12,
   },
   userName: {
-    fontSize: 18,
-    fontWeight: '600',
+    fontSize: 20,
+    fontWeight: '700',
     color: '#fff',
     marginBottom: 4,
   },
   userEmail: {
-    fontSize: 13,
+    fontSize: 14,
     color: '#aaa',
-    marginBottom: 8,
+    marginBottom: 12,
   },
   roleBadge: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    borderRadius: 16,
   },
   roleText: {
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: '700',
     color: '#fff',
   },
   menuItems: {
     flex: 1,
-    paddingVertical: 20,
   },
   menuItem: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 16,
-    paddingHorizontal: 20,
+    gap: 16,
   },
   menuItemText: {
-    flex: 1,
-    fontSize: 16,
-    fontWeight: '500',
+    fontSize: 18,
     color: '#fff',
-    marginLeft: 16,
-  },
-  footer: {
-    paddingHorizontal: 20,
-    paddingBottom: 40,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(212, 255, 0, 0.2)',
   },
   logoutButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 16,
+    paddingVertical: 20,
+    gap: 16,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(212, 255, 0, 0.2)',
+    marginBottom: 40,
   },
   logoutText: {
-    fontSize: 16,
-    fontWeight: '500',
+    fontSize: 18,
     color: '#FF6B6B',
-    marginLeft: 16,
   },
 });

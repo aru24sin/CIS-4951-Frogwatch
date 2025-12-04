@@ -21,9 +21,13 @@ export default function ReviewQueue() {
   const [items, setItems] = useState<Rec[]>([]);
   const [loading, setLoading] = useState(true);
   const [menuVisible, setMenuVisible] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    // Query for recordings that need review
+    // predictionScreen sets status to 'needs_review' when submitting
     const ref = collection(db, 'recordings');
+    
     const q = query(
       ref,
       where('status', '==', 'needs_review'),
@@ -31,12 +35,22 @@ export default function ReviewQueue() {
       limit(50)
     );
 
-    const unsub = onSnapshot(q, (snap) => {
-      const rows: Rec[] = [];
-      snap.forEach((d) => rows.push({ id: d.id, ...(d.data() as any) }));
-      setItems(rows);
-      setLoading(false);
-    });
+    const unsub = onSnapshot(
+      q, 
+      (snap) => {
+        const rows: Rec[] = [];
+        snap.forEach((d) => rows.push({ id: d.id, ...(d.data() as any) }));
+        setItems(rows);
+        setLoading(false);
+        setError(null);
+        console.log(`Loaded ${rows.length} recordings needing review`);
+      },
+      (err) => {
+        console.error('Review queue query error:', err);
+        setError(err.message);
+        setLoading(false);
+      }
+    );
 
     return () => unsub();
   }, []);
@@ -182,7 +196,7 @@ const styles = StyleSheet.create({
   },
   listContent: {
     paddingHorizontal: 20,
-    paddingBottom: 20,
+    paddingBottom: 100,
   },
   recordingCard: {
     backgroundColor: '#2d3e34',

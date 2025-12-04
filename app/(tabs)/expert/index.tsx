@@ -45,15 +45,26 @@ export default function ExpertDashboard() {
     (async () => {
       try {
         const rec = collection(db, 'recordings');
-        const needs = await getCountFromServer(query(rec, where('status', '==', 'needs_review')));
+        
+        // Count recordings by status
+        // predictionScreen uses 'needs_review' for new submissions
+        const needsReview = await getCountFromServer(query(rec, where('status', '==', 'needs_review')));
         const approved = await getCountFromServer(query(rec, where('status', '==', 'approved')));
         const discarded = await getCountFromServer(query(rec, where('status', '==', 'discarded')));
+        
         if (!alive) return;
         setCounts({
-          needs: needs.data().count || 0,
+          needs: needsReview.data().count || 0,
           approved: approved.data().count || 0,
           discarded: discarded.data().count || 0,
         });
+        console.log('Counts loaded:', { 
+          needs_review: needsReview.data().count, 
+          approved: approved.data().count, 
+          discarded: discarded.data().count 
+        });
+      } catch (error) {
+        console.error('Error fetching counts:', error);
       } finally {
         if (alive) setLoading(false);
       }

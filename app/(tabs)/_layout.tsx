@@ -23,6 +23,7 @@ export default function TabLayout() {
       <Stack.Screen name="profileScreen" />
       <Stack.Screen name="settingsScreen" />
       <Stack.Screen name="usersScreen" />
+      <Stack.Screen name="feedbackScreen" />
       <Stack.Screen name="expert" />
     </Stack>
   );

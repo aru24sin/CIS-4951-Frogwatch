@@ -2,7 +2,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -15,8 +15,10 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import NavigationMenu from '../../components/NavigationMenu';
 import { auth, db } from '../firebaseConfig';
+import { settingsAPI, usersAPI } from '../../services/api';
 
 type UserSettings = {
   notifications: {
@@ -133,10 +135,47 @@ export default function SettingsScreen() {
           setIsExpert(userData.isExpert === true || roleStr === 'expert');
         }
 
-        // Load user settings
-        const settingsDoc = await getDoc(doc(db, 'userSettings', user.uid));
-        if (settingsDoc.exists()) {
-          setSettings(settingsDoc.data() as UserSettings);
+        // Load user settings from backend API
+        try {
+          const apiSettings = await settingsAPI.get();
+          // Map backend format to frontend format
+          setSettings({
+            notifications: {
+              pushEnabled: apiSettings.notifications?.push ?? true,
+              emailEnabled: apiSettings.notifications?.email ?? true,
+              recordingUpdates: apiSettings.notifications?.recording_updates ?? true,
+              expertResponses: apiSettings.notifications?.expert_responses ?? true,
+              weeklyDigest: apiSettings.notifications?.weekly_digest ?? false,
+              soundEnabled: apiSettings.notifications?.sounds ?? true,
+            },
+            permissions: {
+              locationAlways: apiSettings.permissions?.location_always ?? false,
+              locationInUse: apiSettings.permissions?.location_while_using ?? true,
+              microphone: apiSettings.permissions?.microphone ?? true,
+              camera: apiSettings.permissions?.camera ?? true,
+              photoLibrary: apiSettings.permissions?.photo_library ?? true,
+            },
+            privacy: {
+              profileVisible: apiSettings.privacy?.profile_visible ?? true,
+              showLocation: apiSettings.privacy?.show_location ?? true,
+              showRecordings: apiSettings.privacy?.show_recordings ?? true,
+              allowDataCollection: apiSettings.privacy?.data_collection ?? true,
+            },
+            preferences: {
+              darkMode: apiSettings.preferences?.dark_mode ?? true,
+              language: apiSettings.preferences?.language ?? 'English',
+              units: apiSettings.preferences?.units === 'metric' ? 'metric' : 'imperial',
+              autoPlay: apiSettings.preferences?.autoplay_audio ?? false,
+              highQualityAudio: apiSettings.preferences?.high_quality_audio ?? true,
+            },
+          });
+        } catch (apiError) {
+          console.log('Backend API not available, using Firestore fallback');
+          // Fallback to Firestore
+          const settingsDoc = await getDoc(doc(db, 'userSettings', user.uid));
+          if (settingsDoc.exists()) {
+            setSettings(settingsDoc.data() as UserSettings);
+          }
         }
       } catch (error) {
         console.error('Error fetching user data:', error);
@@ -159,7 +198,45 @@ export default function SettingsScreen() {
   const updateSettings = async (newSettings: UserSettings) => {
     try {
       if (!auth.currentUser) return;
-      await updateDoc(doc(db, 'userSettings', auth.currentUser.uid), newSettings as any);
+      
+      // Try to update via backend API first
+      try {
+        await settingsAPI.update({
+          notifications: {
+            push: newSettings.notifications.pushEnabled,
+            email: newSettings.notifications.emailEnabled,
+            recording_updates: newSettings.notifications.recordingUpdates,
+            expert_responses: newSettings.notifications.expertResponses,
+            weekly_digest: newSettings.notifications.weeklyDigest,
+            sounds: newSettings.notifications.soundEnabled,
+          },
+          permissions: {
+            location_always: newSettings.permissions.locationAlways,
+            location_while_using: newSettings.permissions.locationInUse,
+            microphone: newSettings.permissions.microphone,
+            camera: newSettings.permissions.camera,
+            photo_library: newSettings.permissions.photoLibrary,
+          },
+          privacy: {
+            profile_visible: newSettings.privacy.profileVisible,
+            show_location: newSettings.privacy.showLocation,
+            show_recordings: newSettings.privacy.showRecordings,
+            data_collection: newSettings.privacy.allowDataCollection,
+          },
+          preferences: {
+            dark_mode: newSettings.preferences.darkMode,
+            autoplay_audio: newSettings.preferences.autoPlay,
+            high_quality_audio: newSettings.preferences.highQualityAudio,
+            language: newSettings.preferences.language === 'English' ? 'en' : newSettings.preferences.language,
+            units: newSettings.preferences.units,
+          },
+        });
+      } catch (apiError) {
+        console.log('Backend API not available, using Firestore fallback');
+        // Fallback to Firestore - use setDoc with merge to create if doesn't exist
+        await setDoc(doc(db, 'userSettings', auth.currentUser.uid), newSettings as any, { merge: true });
+      }
+      
       setSettings(newSettings);
     } catch (error) {
       console.error('Error updating settings:', error);
@@ -275,17 +352,18 @@ export default function SettingsScreen() {
   }
 
   return (
-    <View style={styles.container}>
-      <NavigationMenu isVisible={menuVisible} onClose={() => setMenuVisible(false)} />
-      
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.push(homeScreen as any)} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={28} color="#fff" />
-        </TouchableOpacity>
+    <SafeAreaView style={styles.container} edges={['bottom']}>
+      <View style={styles.innerContainer}>
+        <NavigationMenu isVisible={menuVisible} onClose={() => setMenuVisible(false)} />
+        
+        {/* Header */}
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => router.push(homeScreen as any)} style={styles.backButton}>
+            <Ionicons name="arrow-back" size={28} color="#fff" />
+          </TouchableOpacity>
 
-        <View>
-          <Text style={styles.headerTitle}>Settings</Text>
+          <View>
+            <Text style={styles.headerTitle}>Settings</Text>
           <View style={styles.underline} />
         </View>
 
@@ -294,7 +372,7 @@ export default function SettingsScreen() {
         </TouchableOpacity>
       </View>
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView style={styles.content} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         {/* Search Bar */}
         <View style={styles.searchContainer}>
           <Ionicons name="search" size={24} color="#999" style={styles.searchIcon} />
@@ -691,11 +769,28 @@ export default function SettingsScreen() {
                           </Text>
                           <TouchableOpacity
                             style={styles.requestButton}
-                            onPress={() => {
-                              Alert.alert(
-                                'Request Sent',
-                                'Your expert access request has been submitted. An admin will review your request.'
-                              );
+                            onPress={async () => {
+                              try {
+                                const user = auth.currentUser;
+                                if (!user) {
+                                  Alert.alert('Error', 'You must be logged in to request expert access.');
+                                  return;
+                                }
+                                
+                                // Update Firestore to mark user as pending expert
+                                await updateDoc(doc(db, 'users', user.uid), {
+                                  isPendingExpert: true,
+                                  expertRequestedAt: new Date().toISOString(),
+                                });
+                                
+                                Alert.alert(
+                                  'Request Sent',
+                                  'Your expert access request has been submitted. An admin will review your request.'
+                                );
+                              } catch (error) {
+                                console.error('Error requesting expert access:', error);
+                                Alert.alert('Error', 'Failed to submit request. Please try again.');
+                              }
                             }}
                           >
                             <Text style={styles.requestButtonText}>Request Expert Access</Text>
@@ -769,7 +864,8 @@ export default function SettingsScreen() {
           ))}
         </View>
       </ScrollView>
-    </View>
+      </View>
+    </SafeAreaView>
   );
 }
 
@@ -777,6 +873,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#3F5A47',
+  },
+  innerContainer: {
+    flex: 1,
   },
   header: {
     flexDirection: 'row',
@@ -817,6 +916,9 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     paddingHorizontal: 20,
+  },
+  scrollContent: {
+    paddingBottom: 100,
   },
   searchContainer: {
     flexDirection: 'row',

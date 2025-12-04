@@ -37,6 +37,9 @@ type Recording = {
   notes?: string;
   submitterName?: string;
   recordingNumber?: number;
+  // AI prediction fields
+  aiSpecies?: string;
+  aiConfidence?: number;
 };
 
 const speciesImageMap: Record<string, any> = {
@@ -194,6 +197,13 @@ export default function HistoryScreen() {
               notes: d.notes || '',
               submitterName,
               recordingNumber: index++,
+              // AI prediction fields
+              aiSpecies: d.aiSpecies || d.predictedSpecies || '',
+              aiConfidence: typeof d.aiConfidence === 'number' 
+                ? Math.round(d.aiConfidence * 100)
+                : typeof d.confidenceScore === 'number'
+                  ? Math.round(d.confidenceScore * 100)
+                  : undefined,
             });
           }
 
@@ -426,6 +436,28 @@ export default function HistoryScreen() {
               </View>
             ) : (
               <>
+                {/* AI Prediction Section - only show if we have actual AI data */}
+                {item.aiSpecies && item.aiSpecies.trim() !== '' && (
+                  <View style={styles.aiPredictionBox}>
+                    <View style={styles.aiPredictionHeader}>
+                      <Ionicons name="sparkles" size={16} color="#d4ff00" />
+                      <Text style={styles.aiPredictionTitle}>AI Prediction</Text>
+                    </View>
+                    <View style={styles.aiPredictionContent}>
+                      <View style={styles.aiPredictionItem}>
+                        <Text style={styles.aiPredictionLabel}>Species</Text>
+                        <Text style={styles.aiPredictionValue}>{item.aiSpecies}</Text>
+                      </View>
+                      <View style={styles.aiPredictionItem}>
+                        <Text style={styles.aiPredictionLabel}>Confidence</Text>
+                        <Text style={styles.aiPredictionValue}>
+                          {item.aiConfidence != null && item.aiConfidence > 0 ? `${item.aiConfidence}%` : 'N/A'}
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
+                )}
+
                 {/* Species Display */}
                 <View style={styles.speciesDisplayBox}>
                   <Text style={styles.speciesDisplayText}>
@@ -625,7 +657,7 @@ const styles = StyleSheet.create({
   },
   listContent: {
     paddingHorizontal: 20,
-    paddingBottom: 20,
+    paddingBottom: 100,
   },
   error: {
     padding: 12,
@@ -848,5 +880,42 @@ const styles = StyleSheet.create({
   uploadStatus: {
     fontSize: 14,
     color: '#aaa',
+  },
+  // AI Prediction styles
+  aiPredictionBox: {
+    backgroundColor: 'rgba(212, 255, 0, 0.1)',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(212, 255, 0, 0.3)',
+  },
+  aiPredictionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+  },
+  aiPredictionTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#d4ff00',
+  },
+  aiPredictionContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  aiPredictionItem: {
+    flex: 1,
+  },
+  aiPredictionLabel: {
+    fontSize: 12,
+    color: '#aaa',
+    marginBottom: 2,
+  },
+  aiPredictionValue: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#fff',
   },
 });

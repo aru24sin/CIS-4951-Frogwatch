@@ -23,6 +23,7 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import NavigationMenu from '../../../../components/NavigationMenu';
 import { auth, db, storage } from '../../../firebaseConfig';
 
@@ -189,38 +190,62 @@ export default function ExpertSubmissionDetails() {
     }
   }, [audioUrl, playing]);
 
-  // Common review writer
+  // Common review writer - updates Firestore directly
   async function writeAudit(action: 'approved' | 'discarded') {
-    if (!id) throw new Error('Missing id');
+    if (!id) {
+      throw new Error('Missing recording id');
+    }
+    
     const user = auth.currentUser;
-    const reviewerId = user?.uid || 'unknown';
-
+    if (!user) {
+      throw new Error('You must be logged in to review submissions.');
+    }
+    
+    const reviewerId = user.uid;
     const confPct = confidenceStr.trim() === '' ? null : Number(confidenceStr);
-    const conf01 =
-      confPct == null || Number.isNaN(confPct)
-        ? null
-        : Math.max(0, Math.min(100, confPct)) / 100;
+    const conf01 = confPct == null || Number.isNaN(confPct)
+      ? null
+      : Math.max(0, Math.min(100, confPct)) / 100;
 
-    // Add a review event under subcollection
-    await addDoc(collection(db, 'recordings', id, 'reviews'), {
-      action,
-      species: species?.trim() || null,
-      confidence: conf01,
-      reviewerId,
-      notes: notes?.trim() || null,
-      createdAt: serverTimestamp(),
-    });
+    console.log(`Attempting to ${action} recording ${id}...`);
 
-    // Update the parent doc
-    const updates: any = {
-      status: action,
-      reviewedAt: serverTimestamp(),
-      reviewedBy: reviewerId,
-      expertSpecies: species?.trim() || null,
-      expertConfidence: conf01,
-      expertNotes: notes?.trim() || null,
-    };
-    await updateDoc(doc(db, 'recordings', id), updates);
+    // Update Firestore directly
+    try {
+      // 1. Add a review event under subcollection for audit trail
+      await addDoc(collection(db, 'recordings', id, 'reviews'), {
+        action,
+        species: species?.trim() || null,
+        confidence: conf01,
+        reviewerId,
+        notes: notes?.trim() || null,
+        createdAt: serverTimestamp(),
+      });
+      console.log('Review audit log created');
+
+      // 2. Update the parent recording document
+      const updates: Record<string, any> = {
+        status: action, // 'approved' or 'discarded'
+        reviewedAt: serverTimestamp(),
+        reviewedBy: reviewerId,
+      };
+      
+      if (species?.trim()) {
+        updates.expertSpecies = species.trim();
+      }
+      if (conf01 !== null) {
+        updates.expertConfidence = conf01;
+      }
+      if (notes?.trim()) {
+        updates.expertNotes = notes.trim();
+      }
+      
+      await updateDoc(doc(db, 'recordings', id), updates);
+      console.log(`Recording ${id} status updated to '${action}'`);
+      
+    } catch (error: any) {
+      console.error('Firestore update failed:', error);
+      throw new Error(error?.message || 'Failed to update recording in database');
+    }
   }
 
   async function onSave() {
@@ -279,24 +304,25 @@ export default function ExpertSubmissionDetails() {
   }
 
   return (
-    <View style={styles.container}>
-      <NavigationMenu isVisible={menuVisible} onClose={() => setMenuVisible(false)} />
-      
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={28} color="#fff" />
-        </TouchableOpacity>
-        <View>
-          <Text style={styles.headerTitle}>Review</Text>
-          <View style={styles.titleUnderline} />
+    <SafeAreaView style={styles.container} edges={['bottom']}>
+      <View style={styles.innerContainer}>
+        <NavigationMenu isVisible={menuVisible} onClose={() => setMenuVisible(false)} />
+        
+        {/* Header */}
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+            <Ionicons name="arrow-back" size={28} color="#fff" />
+          </TouchableOpacity>
+          <View>
+            <Text style={styles.headerTitle}>Review</Text>
+            <View style={styles.titleUnderline} />
+          </View>
+          <TouchableOpacity onPress={() => setMenuVisible(true)} style={styles.menuButton}>
+            <Ionicons name="menu" size={28} color="#fff" />
+          </TouchableOpacity>
         </View>
-        <TouchableOpacity onPress={() => setMenuVisible(true)} style={styles.menuButton}>
-          <Ionicons name="menu" size={28} color="#fff" />
-        </TouchableOpacity>
-      </View>
 
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         {/* AI Summary Card */}
         <View style={styles.aiCard}>
           <View style={styles.aiHeader}>
@@ -447,7 +473,8 @@ export default function ExpertSubmissionDetails() {
           </Pressable>
         </View>
       </ScrollView>
-    </View>
+      </View>
+    </SafeAreaView>
   );
 }
 
@@ -455,6 +482,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#3F5A47',
+  },
+  innerContainer: {
+    flex: 1,
   },
   loadingContainer: {
     flex: 1,
@@ -522,7 +552,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: 20,
-    paddingBottom: 40,
+    paddingBottom: 100,  // Increased padding for safe area and button accessibility
   },
   aiCard: {
     backgroundColor: '#2d3e34',

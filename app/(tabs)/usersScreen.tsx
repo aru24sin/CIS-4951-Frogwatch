@@ -25,8 +25,10 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import NavigationMenu from '../../components/NavigationMenu';
 import { auth, db } from '../firebaseConfig';
+import { usersAPI } from '../../services/api';
 
 type User = {
   userId: string;
@@ -96,7 +98,7 @@ export default function UsersScreen() {
   const [loading, setLoading] = useState(true);
   const [users, setUsers] = useState<User[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterType, setFilterType] = useState<'all' | 'experts' | 'volunteers'>('all');
+  const [filterType, setFilterType] = useState<'all' | 'experts' | 'volunteers' | 'pending'>('all');
   const [expandedUserId, setExpandedUserId] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [showFilterModal, setShowFilterModal] = useState(false);
@@ -244,6 +246,8 @@ export default function UsersScreen() {
 
   const handleToggleExpert = async (userId: string, currentStatus: boolean) => {
     const action = currentStatus ? 'remove' : 'grant';
+    const newRole = currentStatus ? 'volunteer' : 'expert';
+    
     Alert.alert(
       `${currentStatus ? 'Remove' : 'Grant'} Expert Access`,
       `Are you sure you want to ${action} expert access for this user?`,
@@ -254,10 +258,19 @@ export default function UsersScreen() {
           style: action === 'remove' ? 'destructive' : 'default',
           onPress: async () => {
             try {
-              await updateDoc(doc(db, 'users', userId), {
-                isExpert: !currentStatus,
-                isPendingExpert: false,
-              });
+              // Try backend API first
+              try {
+                await usersAPI.updateRole(userId, newRole);
+                console.log(`User ${userId} role updated to ${newRole} via backend API`);
+              } catch (apiError) {
+                console.log('Backend API not available, using Firestore fallback');
+                // Fallback to Firestore
+                await updateDoc(doc(db, 'users', userId), {
+                  role: newRole,
+                  isExpert: !currentStatus,
+                  isPendingExpert: false,
+                });
+              }
 
               setUsers(prevUsers =>
                 prevUsers.map(user =>
@@ -288,10 +301,19 @@ export default function UsersScreen() {
           text: 'Approve',
           onPress: async () => {
             try {
-              await updateDoc(doc(db, 'users', userId), {
-                isExpert: true,
-                isPendingExpert: false,
-              });
+              // Try backend API first
+              try {
+                await usersAPI.updateRole(userId, 'expert');
+                console.log(`User ${userId} approved as expert via backend API`);
+              } catch (apiError) {
+                console.log('Backend API not available, using Firestore fallback');
+                // Fallback to Firestore
+                await updateDoc(doc(db, 'users', userId), {
+                  role: 'expert',
+                  isExpert: true,
+                  isPendingExpert: false,
+                });
+              }
 
               setUsers(prevUsers =>
                 prevUsers.map(user =>
@@ -312,7 +334,43 @@ export default function UsersScreen() {
     );
   };
 
-  const handleFilterSelect = (type: 'all' | 'experts' | 'volunteers') => {
+  const handleDenyPending = async (userId: string) => {
+    Alert.alert(
+      'Deny Expert Request',
+      'Are you sure you want to deny this expert request?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Deny',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              // Update Firestore to clear pending status
+              await updateDoc(doc(db, 'users', userId), {
+                isPendingExpert: false,
+                expertRequestDeniedAt: new Date().toISOString(),
+              });
+
+              setUsers(prevUsers =>
+                prevUsers.map(user =>
+                  user.userId === userId
+                    ? { ...user, isPendingExpert: false }
+                    : user
+                )
+              );
+
+              Alert.alert('Request Denied', 'The expert access request has been denied.');
+            } catch (error) {
+              console.error('Error denying expert request:', error);
+              Alert.alert('Error', 'Failed to deny expert request');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleFilterSelect = (type: 'all' | 'experts' | 'volunteers' | 'pending') => {
     setFilterType(type);
     setShowFilterModal(false);
   };
@@ -329,10 +387,14 @@ export default function UsersScreen() {
 
     // Type filter
     if (filterType === 'experts' && !user.isExpert) return false;
-    if (filterType === 'volunteers' && user.isExpert) return false;
+    if (filterType === 'volunteers' && (user.isExpert || user.isPendingExpert)) return false;
+    if (filterType === 'pending' && !user.isPendingExpert) return false;
 
     return true;
   });
+  
+  // Count pending expert requests
+  const pendingCount = users.filter(u => u.isPendingExpert).length;
 
   if (loading) {
     return (
@@ -343,28 +405,29 @@ export default function UsersScreen() {
   }
 
   return (
-    <View style={styles.container}>
-      <NavigationMenu isVisible={menuVisible} onClose={() => setMenuVisible(false)} />
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.push(homeScreen as any)} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={28} color="#fff" />
-        </TouchableOpacity>
+    <SafeAreaView style={styles.container} edges={['bottom']}>
+      <View style={styles.innerContainer}>
+        <NavigationMenu isVisible={menuVisible} onClose={() => setMenuVisible(false)} />
+        {/* Header */}
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => router.push(homeScreen as any)} style={styles.backButton}>
+            <Ionicons name="arrow-back" size={28} color="#fff" />
+          </TouchableOpacity>
 
-        <View>
-          <Text style={styles.headerTitle}>Users</Text>
-          <View style={styles.underline} />
+          <View>
+            <Text style={styles.headerTitle}>Users</Text>
+            <View style={styles.underline} />
+          </View>
+
+          <TouchableOpacity onPress={() => setMenuVisible(true)} style={styles.menuButton}>
+            <Ionicons name="menu" size={28} color="#fff" />
+          </TouchableOpacity>
         </View>
 
-        <TouchableOpacity onPress={() => setMenuVisible(true)} style={styles.menuButton}>
-          <Ionicons name="menu" size={28} color="#fff" />
-        </TouchableOpacity>
-      </View>
-
-      {/* Search and Filter */}
-      <View style={styles.searchContainer}>
-        <View style={styles.searchBar}>
-          <Ionicons name="search" size={24} color="#d4ff00" style={styles.searchIcon} />
+        {/* Search and Filter */}
+        <View style={styles.searchContainer}>
+          <View style={styles.searchBar}>
+            <Ionicons name="search" size={24} color="#d4ff00" style={styles.searchIcon} />
           <TextInput
             style={styles.searchInput}
             placeholder="Search"
@@ -409,6 +472,23 @@ export default function UsersScreen() {
             </TouchableOpacity>
 
             <TouchableOpacity
+              style={[styles.filterOption, filterType === 'pending' && styles.filterOptionActive]}
+              onPress={() => handleFilterSelect('pending')}
+            >
+              <View style={styles.filterOptionRow}>
+                <Text style={[styles.filterOptionText, filterType === 'pending' && styles.filterOptionTextActive]}>
+                  Pending Requests
+                </Text>
+                {pendingCount > 0 && (
+                  <View style={styles.pendingCountBadge}>
+                    <Text style={styles.pendingCountText}>{pendingCount}</Text>
+                  </View>
+                )}
+              </View>
+              {filterType === 'pending' && <Ionicons name="checkmark" size={24} color="#d4ff00" />}
+            </TouchableOpacity>
+
+            <TouchableOpacity
               style={[styles.filterOption, filterType === 'experts' && styles.filterOptionActive]}
               onPress={() => handleFilterSelect('experts')}
             >
@@ -439,7 +519,28 @@ export default function UsersScreen() {
       </Modal>
 
       {/* Users List */}
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView style={styles.content} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        {/* Pending Expert Requests Banner */}
+        {pendingCount > 0 && filterType !== 'pending' && (
+          <TouchableOpacity 
+            style={styles.pendingBanner}
+            onPress={() => setFilterType('pending')}
+          >
+            <View style={styles.pendingBannerContent}>
+              <View style={styles.pendingBannerIcon}>
+                <Ionicons name="time" size={24} color="#2d3e34" />
+              </View>
+              <View style={styles.pendingBannerText}>
+                <Text style={styles.pendingBannerTitle}>
+                  {pendingCount} Expert Request{pendingCount !== 1 ? 's' : ''} Pending
+                </Text>
+                <Text style={styles.pendingBannerSubtitle}>Tap to review</Text>
+              </View>
+            </View>
+            <Ionicons name="chevron-forward" size={24} color="#2d3e34" />
+          </TouchableOpacity>
+        )}
+        
         {filteredUsers.map((user) => (
           <View key={user.userId} style={styles.userCard}>
             <TouchableOpacity
@@ -516,12 +617,22 @@ export default function UsersScreen() {
 
                 {/* Add/Remove Expert Button */}
                 {user.isPendingExpert ? (
-                  <TouchableOpacity
-                    style={styles.approveButton}
-                    onPress={() => handleApprovePending(user.userId)}
-                  >
-                    <Text style={styles.approveButtonText}>Approve Expert Request</Text>
-                  </TouchableOpacity>
+                  <View style={styles.pendingButtonsContainer}>
+                    <TouchableOpacity
+                      style={styles.approveButton}
+                      onPress={() => handleApprovePending(user.userId)}
+                    >
+                      <Ionicons name="checkmark-circle" size={20} color="#2d3e34" />
+                      <Text style={styles.approveButtonText}>Approve</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.denyButton}
+                      onPress={() => handleDenyPending(user.userId)}
+                    >
+                      <Ionicons name="close-circle" size={20} color="#FF6B6B" />
+                      <Text style={styles.denyButtonText}>Deny</Text>
+                    </TouchableOpacity>
+                  </View>
                 ) : (
                   <TouchableOpacity
                     style={user.isExpert ? styles.removeExpertButton : styles.addExpertButton}
@@ -543,7 +654,8 @@ export default function UsersScreen() {
           </View>
         )}
       </ScrollView>
-    </View>
+      </View>
+    </SafeAreaView>
   );
 }
 
@@ -551,6 +663,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#3d5e44',
+  },
+  innerContainer: {
+    flex: 1,
   },
   header: {
     paddingTop: 50,
@@ -687,6 +802,9 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: 20,
   },
+  scrollContent: {
+    paddingBottom: 100,
+  },
   userCard: {
     backgroundColor: '#2d3e34',
     borderRadius: 16,
@@ -731,7 +849,7 @@ const styles = StyleSheet.create({
     width: 28,
     height: 28,
     borderRadius: 14,
-    backgroundColor: '#4db8e8',
+    backgroundColor: '#f5a623',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -828,17 +946,42 @@ const styles = StyleSheet.create({
     borderColor: '#d4ff00',
     marginTop: 8,
   },
+  pendingButtonsContainer: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 8,
+  },
   approveButton: {
-    backgroundColor: '#4db8e8',
+    flex: 1,
+    backgroundColor: '#4CAF50',
     borderRadius: 25,
     paddingVertical: 12,
+    flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 8,
+    justifyContent: 'center',
+    gap: 8,
   },
   approveButtonText: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#2d3e34',
+    color: '#fff',
+  },
+  denyButton: {
+    flex: 1,
+    backgroundColor: '#3d4f44',
+    borderRadius: 25,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderWidth: 2,
+    borderColor: '#FF6B6B',
+  },
+  denyButtonText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#FF6B6B',
   },
   expertButtonText: {
     fontSize: 16,
@@ -852,5 +995,62 @@ const styles = StyleSheet.create({
   emptyStateText: {
     fontSize: 18,
     color: '#aaa',
+  },
+  // Pending banner styles
+  pendingBanner: {
+    backgroundColor: '#f5a623',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  pendingBannerContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  pendingBannerIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  pendingBannerText: {
+    flex: 1,
+  },
+  pendingBannerTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#2d3e34',
+  },
+  pendingBannerSubtitle: {
+    fontSize: 14,
+    color: '#2d3e34',
+    opacity: 0.7,
+  },
+  // Filter option row with badge
+  filterOptionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  pendingCountBadge: {
+    backgroundColor: '#f5a623',
+    borderRadius: 12,
+    minWidth: 24,
+    height: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+  },
+  pendingCountText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#2d3e34',
   },
 });

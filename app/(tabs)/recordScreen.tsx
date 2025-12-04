@@ -18,6 +18,7 @@ import {
 import MapView, { Marker } from 'react-native-maps';
 import NavigationMenu from '../../components/NavigationMenu';
 import { auth, db } from '../firebaseConfig';
+import { recordingsAPI } from '../../services/api';
 
 const MAX_RECORD_SECONDS = 10;
 const MAX_MS = MAX_RECORD_SECONDS * 1000;
