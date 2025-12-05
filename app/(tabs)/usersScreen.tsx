@@ -169,6 +169,15 @@ export default function UsersScreen() {
       for (const userDoc of usersSnapshot.docs) {
         const userData = userDoc.data() as DocumentData;
         
+        // Check if user is admin - skip admin users
+        const roleStr = (userData.role || '').toString().toLowerCase();
+        const userIsAdmin = userData.isAdmin === true || roleStr === 'admin';
+        
+        // Don't show admin users in the list
+        if (userIsAdmin) {
+          continue;
+        }
+        
         // Get user's recordings count
         const recordingsQuery = query(
           collection(db, 'recordings'),
@@ -177,7 +186,6 @@ export default function UsersScreen() {
         const recordingsSnapshot = await getDocs(recordingsQuery);
 
         // Check both role field (string) and boolean fields for compatibility
-        const roleStr = (userData.role || '').toString().toLowerCase();
         const userIsExpert = userData.isExpert === true || roleStr === 'expert';
 
         usersData.push({
