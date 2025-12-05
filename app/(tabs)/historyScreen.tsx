@@ -5,7 +5,15 @@ import { Audio } from 'expo-av';
 import { useRouter } from 'expo-router';
 import { onAuthStateChanged } from 'firebase/auth';
 import {
-  collection, doc, DocumentData, getDoc, onSnapshot, query, Timestamp, updateDoc, where
+  collection,
+  doc,
+  DocumentData,
+  getDoc,
+  onSnapshot,
+  query,
+  Timestamp,
+  updateDoc,
+  where,
 } from 'firebase/firestore';
 import { getDownloadURL, getStorage, ref } from 'firebase/storage';
 import React, { useEffect, useMemo, useState } from 'react';
@@ -19,7 +27,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  View
+  View,
 } from 'react-native';
 import NavigationMenu from '../../components/NavigationMenu';
 import app, { auth, db } from '../firebaseConfig';
@@ -34,7 +42,8 @@ type Recording = {
   location: { latitude: number; longitude: number };
   locationCity?: string;
   status: string;
-  timestampISO?: string;
+  timestampISO?: string;        // display string (now date+time)
+  timestampMs?: number;         // numeric for sorting
   confidence?: number;
   volunteerConfidence?: 'high' | 'medium' | 'low';
   notes?: string;
@@ -46,14 +55,14 @@ type Recording = {
 };
 
 const speciesImageMap: Record<string, any> = {
-  'Bullfrog': require('../../assets/frogs/bullfrog.png'),
+  Bullfrog: require('../../assets/frogs/bullfrog.png'),
   'Green Frog': require('../../assets/frogs/treefrog.png'),
   'Northern Spring Peeper': require('../../assets/frogs/spring_peeper.png'),
   'Northern Leopard Frog': require('../../assets/frogs/northern_leopard.png'),
   'Eastern Gray Treefrog': require('../../assets/frogs/gray_treefrog.png'),
   'Wood Frog': require('../../assets/frogs/wood_frog.png'),
   'American Toad': require('../../assets/frogs/american_toad.png'),
-  'Midland Chorus Frog': require('../../assets/frogs/midland_chorus.png')
+  'Midland Chorus Frog': require('../../assets/frogs/midland_chorus.png'),
 };
 const placeholderImage = require('../../assets/frogs/placeholder.png');
 
@@ -66,7 +75,7 @@ const speciesOptions = [
   'Eastern Gray Treefrog',
   'Wood Frog',
   'American Toad',
-  'Midland Chorus Frog'
+  'Midland Chorus Frog',
 ];
 
 // Helper function to get the correct home screen based on user role
@@ -74,15 +83,15 @@ const getHomeScreen = async (): Promise<string> => {
   try {
     const user = auth.currentUser;
     if (!user) return './volunteerHomeScreen';
-    
+
     const userDoc = await getDoc(doc(db, 'users', user.uid));
     const userData = userDoc.data() || {};
-    
+
     // Check both role field (string) and boolean fields for compatibility
     const roleStr = (userData.role || '').toString().toLowerCase();
     const isAdmin = userData.isAdmin === true || roleStr === 'admin';
     const isExpert = userData.isExpert === true || roleStr === 'expert';
-    
+
     if (isAdmin) return './adminHomeScreen';
     if (isExpert) return './expertHomeScreen';
     return './volunteerHomeScreen';
@@ -96,13 +105,18 @@ function pickDevHost() {
   const m = url?.match(/\/\/([^/:]+):\d+/);
   return m?.[1] ?? 'localhost';
 }
-const API_BASE = __DEV__ ? `http://${pickDevHost()}:8000` : 'https://your-production-domain';
+const API_BASE = __DEV__
+  ? `http://${pickDevHost()}:8000`
+  : 'https://your-production-domain';
 
 function resolveAudioURL(d: any): string | undefined {
-  const filePath = d?.filePath || (d?.fileName ? `uploaded_audios/${d.fileName}` : undefined);
+  const filePath =
+    d?.filePath || (d?.fileName ? `uploaded_audios/${d.fileName}` : undefined);
   if (filePath) {
     const bucket = (app.options as any).storageBucket as string;
-    return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodeURIComponent(filePath)}?alt=media`;
+    return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodeURIComponent(
+      filePath
+    )}?alt=media`;
   }
   const a = d?.audioURL;
   if (typeof a === 'string') {
@@ -118,7 +132,11 @@ async function getCityFromCoords(lat: number, lon: number): Promise<string> {
       `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`
     );
     const data = await response.json();
-    const city = data.address?.city || data.address?.town || data.address?.village || 'Unknown';
+    const city =
+      data.address?.city ||
+      data.address?.town ||
+      data.address?.village ||
+      'Unknown';
     const state = data.address?.state || '';
     return state ? `${city}, ${state}` : city;
   } catch (error) {
@@ -140,7 +158,8 @@ export default function HistoryScreen() {
   const [editNotes, setEditNotes] = useState('');
   const [menuVisible, setMenuVisible] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [homeScreen, setHomeScreen] = useState<string>('./volunteerHomeScreen');
+  const [homeScreen, setHomeScreen] =
+    useState<string>('./volunteerHomeScreen');
   const [playingId, setPlayingId] = useState<string | null>(null);
 
   // Determine the correct home screen on mount
@@ -168,7 +187,10 @@ export default function HistoryScreen() {
       setLoading(true);
       setErrorText(null);
 
-      const q = query(collection(db, 'recordings'), where('userId', '==', user.uid));
+      const q = query(
+        collection(db, 'recordings'),
+        where('userId', '==', user.uid)
+      );
 
       offSnap = onSnapshot(
         q,
@@ -181,49 +203,101 @@ export default function HistoryScreen() {
           }
 
           const rows: Recording[] = [];
-          let index = 1;
-          
-          for (const doc of snap.docs) {
-            const d = doc.data() as DocumentData;
+
+          for (const docSnap of snap.docs) {
+            const d = docSnap.data() as DocumentData;
+
+            // --- Robust timestamp handling + date-time formatting ---
             const ts: Timestamp | undefined = d.timestamp;
-            const timestampISO = ts?.toDate?.()?.toLocaleDateString?.() ?? d.timestamp_iso ?? 'Unknown';
+            let jsDate: Date | null = null;
+
+            if (ts?.toDate && typeof ts.toDate === 'function') {
+              jsDate = ts.toDate();
+            } else if (typeof d.timestamp === 'number') {
+              jsDate = new Date(d.timestamp);
+            } else if (typeof d.timestamp === 'string') {
+              const parsed = new Date(d.timestamp);
+              if (!Number.isNaN(parsed.getTime())) jsDate = parsed;
+            } else if (typeof d.timestamp_iso === 'string') {
+              const parsed = new Date(d.timestamp_iso);
+              if (!Number.isNaN(parsed.getTime())) jsDate = parsed;
+            }
+
+            let timestampDisplay = 'Unknown';
+            let timestampMs: number | undefined;
+
+            if (jsDate) {
+              timestampDisplay = jsDate.toLocaleString('en-US', {
+                weekday: 'short',
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric',
+                hour: 'numeric',
+                minute: '2-digit',
+              });
+              timestampMs = jsDate.getTime();
+            }
 
             const lat = Number(d?.location?.lat) || 0;
             const lon = Number(d?.location?.lng) || 0;
-            const locationCity = lat && lon ? await getCityFromCoords(lat, lon) : 'Unknown Location';
+            const locationCity =
+              lat && lon
+                ? await getCityFromCoords(lat, lon)
+                : 'Unknown Location';
 
-            const submitterName = d.submitter?.displayName || 
-                                  `${d.submitter?.firstName || ''} ${d.submitter?.lastName || ''}`.trim() ||
-                                  'Unknown';
+            const submitterName =
+              d.submitter?.displayName ||
+              `${d.submitter?.firstName || ''} ${
+                d.submitter?.lastName || ''
+              }`.trim() ||
+              'Unknown';
 
             rows.push({
-              recordingId: d.recordingId ?? doc.id,
+              recordingId: d.recordingId ?? docSnap.id,
               userId: d.userId ?? '',
               predictedSpecies: d.predictedSpecies ?? '',
               species: d.species ?? '',
               audioURL: resolveAudioURL(d),
-              filePath: d.filePath || (d.fileName ? `uploaded_audios/${d.userId || user.uid}/${d.fileName}` : undefined),
+              filePath:
+                d.filePath ||
+                (d.fileName
+                  ? `uploaded_audios/${d.userId || user.uid}/${d.fileName}`
+                  : undefined),
               location: { latitude: lat, longitude: lon },
               locationCity,
               status: d.status ?? 'pending_analysis',
-              timestampISO,
+              timestampISO: timestampDisplay,
+              timestampMs,
               confidence:
                 typeof d.confidenceScore === 'number'
                   ? Math.round(d.confidenceScore * 100)
                   : undefined,
-              volunteerConfidence: d.volunteerConfidenceLevel || d.volunteerConfidence || undefined,
+              volunteerConfidence:
+                d.volunteerConfidenceLevel ||
+                d.volunteerConfidence ||
+                undefined,
               notes: d.notes || '',
               submitterName,
-              recordingNumber: index++,
               // AI prediction fields
               aiSpecies: d.aiSpecies || d.predictedSpecies || '',
-              aiConfidence: typeof d.aiConfidence === 'number' 
-                ? Math.round(d.aiConfidence * 100)
-                : typeof d.confidenceScore === 'number'
+              aiConfidence:
+                typeof d.aiConfidence === 'number'
+                  ? Math.round(d.aiConfidence * 100)
+                  : typeof d.confidenceScore === 'number'
                   ? Math.round(d.confidenceScore * 100)
                   : undefined,
             });
           }
+
+          // Sort by recording time (newest first)
+          rows.sort(
+            (a, b) => (b.timestampMs ?? 0) - (a.timestampMs ?? 0)
+          );
+
+          // Re-number Frog Spec # so #1 is most recent
+          rows.forEach((r, idx) => {
+            r.recordingNumber = idx + 1;
+          });
 
           setRecordings(rows);
           setLoading(false);
@@ -244,7 +318,7 @@ export default function HistoryScreen() {
       offSnap?.();
       offAuth?.();
     };
-  }, []); // Remove sound dependency to prevent re-fetching when audio plays
+  }, []); // no sound dependency
 
   // Separate cleanup for sound
   useEffect(() => {
@@ -253,7 +327,11 @@ export default function HistoryScreen() {
     };
   }, [sound]);
 
-  const handlePlay = async (uri?: string, recordingId?: string, filePath?: string) => {
+  const handlePlay = async (
+    uri?: string,
+    recordingId?: string,
+    filePath?: string
+  ) => {
     if (!uri && !filePath) return;
     try {
       // Stop and unload any existing sound
@@ -265,7 +343,7 @@ export default function HistoryScreen() {
         setSound(null);
         setPlayingId(null);
       }
-      
+
       if (playingId === recordingId) {
         // Was playing this one, now stopped
         return;
@@ -288,7 +366,10 @@ export default function HistoryScreen() {
           const audioRef = ref(storage, filePath);
           audioUri = await getDownloadURL(audioRef);
         } catch (storageErr) {
-          console.log('Storage URL fetch failed, trying direct URI:', storageErr);
+          console.log(
+            'Storage URL fetch failed, trying direct URI:',
+            storageErr
+          );
           // Fall back to the provided URI
         }
       }
@@ -297,18 +378,20 @@ export default function HistoryScreen() {
         Alert.alert('Error', 'No audio URL available');
         return;
       }
-      
-      const { sound: newSound } = await Audio.Sound.createAsync({ uri: audioUri });
+
+      const { sound: newSound } = await Audio.Sound.createAsync({
+        uri: audioUri,
+      });
       setSound(newSound);
       setPlayingId(recordingId || null);
-      
+
       newSound.setOnPlaybackStatusUpdate((status) => {
         if (!status.isLoaded) return;
         if (status.didJustFinish) {
           setPlayingId(null);
         }
       });
-      
+
       await newSound.playAsync();
     } catch (e) {
       console.error('Audio play error:', e);
@@ -343,15 +426,21 @@ export default function HistoryScreen() {
   const handleResubmit = async (recordingId: string) => {
     // Validate confidence score
     const confidenceNum = parseInt(editConfidence, 10);
-    if (editConfidence && (isNaN(confidenceNum) || confidenceNum < 0 || confidenceNum > 100)) {
-      Alert.alert('Invalid Confidence', 'Please enter a number between 0 and 100');
+    if (
+      editConfidence &&
+      (isNaN(confidenceNum) || confidenceNum < 0 || confidenceNum > 100)
+    ) {
+      Alert.alert(
+        'Invalid Confidence',
+        'Please enter a number between 0 and 100'
+      );
       return;
     }
 
     setIsSaving(true);
     try {
       const recordingRef = doc(db, 'recordings', recordingId);
-      
+
       const updates: any = {
         species: editSpecies,
         predictedSpecies: editSpecies,
@@ -367,8 +456,8 @@ export default function HistoryScreen() {
       await updateDoc(recordingRef, updates);
 
       // Update local state
-      setRecordings(prevRecordings =>
-        prevRecordings.map(rec =>
+      setRecordings((prevRecordings) =>
+        prevRecordings.map((rec) =>
           rec.recordingId === recordingId
             ? {
                 ...rec,
@@ -417,10 +506,14 @@ export default function HistoryScreen() {
 
   const getStatusLabel = (status: string) => {
     switch (status) {
-      case 'approved': return 'Approved';
-      case 'needs_review': return 'Pending Review';
-      case 'discarded': return 'Discarded';
-      default: return 'Processing';
+      case 'approved':
+        return 'Approved';
+      case 'needs_review':
+        return 'Pending Review';
+      case 'discarded':
+        return 'Discarded';
+      default:
+        return 'Processing';
     }
   };
 
@@ -436,11 +529,11 @@ export default function HistoryScreen() {
           <View style={styles.card}>
             <View style={styles.cardLeft}>
               <View style={styles.speciesTag}>
-                <Text style={styles.speciesTagText}>Frog Spec #{item.recordingNumber}</Text>
+                <Text style={styles.speciesTagText}>
+                  Frog Spec #{item.recordingNumber}
+                </Text>
               </View>
-              <View style={styles.statusIcon}>
-                {getStatusIcon(item.status)}
-              </View>
+              <View style={styles.statusIcon}>{getStatusIcon(item.status)}</View>
               <Text style={styles.locationText}>{item.locationCity}</Text>
             </View>
             <Image source={img} style={styles.cardImage} />
@@ -452,7 +545,9 @@ export default function HistoryScreen() {
             <View style={styles.expandedHeader}>
               <Text style={styles.expandedDate}>{item.timestampISO}</Text>
               <TouchableOpacity onPress={() => handleEdit(item)}>
-                <Text style={styles.editText}>{isEditing ? 'cancel' : 'edit'}</Text>
+                <Text style={styles.editText}>
+                  {isEditing ? 'cancel' : 'edit'}
+                </Text>
               </TouchableOpacity>
             </View>
 
@@ -500,18 +595,31 @@ export default function HistoryScreen() {
                 {item.aiSpecies && item.aiSpecies.trim() !== '' && (
                   <View style={styles.aiPredictionBox}>
                     <View style={styles.aiPredictionHeader}>
-                      <Ionicons name="sparkles" size={16} color="#d4ff00" />
-                      <Text style={styles.aiPredictionTitle}>AI Prediction</Text>
+                      <Ionicons
+                        name="sparkles"
+                        size={16}
+                        color="#d4ff00"
+                      />
+                      <Text style={styles.aiPredictionTitle}>
+                        AI Prediction
+                      </Text>
                     </View>
                     <View style={styles.aiPredictionContent}>
                       <View style={styles.aiPredictionItem}>
                         <Text style={styles.aiPredictionLabel}>Species</Text>
-                        <Text style={styles.aiPredictionValue}>{item.aiSpecies}</Text>
+                        <Text style={styles.aiPredictionValue}>
+                          {item.aiSpecies}
+                        </Text>
                       </View>
                       <View style={styles.aiPredictionItem}>
-                        <Text style={styles.aiPredictionLabel}>Confidence</Text>
+                        <Text style={styles.aiPredictionLabel}>
+                          Confidence
+                        </Text>
                         <Text style={styles.aiPredictionValue}>
-                          {item.aiConfidence != null && item.aiConfidence > 0 ? `${item.aiConfidence}%` : 'N/A'}
+                          {item.aiConfidence != null &&
+                          item.aiConfidence > 0
+                            ? `${item.aiConfidence}%`
+                            : 'N/A'}
                         </Text>
                       </View>
                     </View>
@@ -522,17 +630,29 @@ export default function HistoryScreen() {
                 {item.volunteerConfidence && (
                   <View style={styles.userConfidenceBox}>
                     <View style={styles.userConfidenceHeader}>
-                      <Ionicons name="person" size={16} color="#4db8e8" />
-                      <Text style={styles.userConfidenceTitle}>User Confidence</Text>
+                      <Ionicons
+                        name="person"
+                        size={16}
+                        color="#4db8e8"
+                      />
+                      <Text style={styles.userConfidenceTitle}>
+                        User Confidence
+                      </Text>
                     </View>
-                    <View style={[
-                      styles.userConfidenceBadge,
-                      item.volunteerConfidence === 'high' && styles.confidenceHigh,
-                      item.volunteerConfidence === 'medium' && styles.confidenceMedium,
-                      item.volunteerConfidence === 'low' && styles.confidenceLow,
-                    ]}>
+                    <View
+                      style={[
+                        styles.userConfidenceBadge,
+                        item.volunteerConfidence === 'high' &&
+                          styles.confidenceHigh,
+                        item.volunteerConfidence === 'medium' &&
+                          styles.confidenceMedium,
+                        item.volunteerConfidence === 'low' &&
+                          styles.confidenceLow,
+                      ]}
+                    >
                       <Text style={styles.userConfidenceText}>
-                        {item.volunteerConfidence.charAt(0).toUpperCase() + item.volunteerConfidence.slice(1)}
+                        {item.volunteerConfidence.charAt(0).toUpperCase() +
+                          item.volunteerConfidence.slice(1)}
                       </Text>
                     </View>
                   </View>
@@ -541,13 +661,17 @@ export default function HistoryScreen() {
                 {/* Species Display */}
                 <View style={styles.speciesDisplayBox}>
                   <Text style={styles.speciesDisplayText}>
-                    {item.species || item.predictedSpecies || 'Unknown Species'}
+                    {item.species ||
+                      item.predictedSpecies ||
+                      'Unknown Species'}
                   </Text>
                 </View>
                 <View style={styles.scoreContainer}>
                   <View style={styles.scoreBox}>
                     <Text style={styles.scoreLabel}>score</Text>
-                    <Text style={styles.scoreValue}>{item.confidence ?? 'N/A'}</Text>
+                    <Text style={styles.scoreValue}>
+                      {item.confidence ?? 'N/A'}
+                    </Text>
                   </View>
                   <View style={styles.notesBox}>
                     <Text style={styles.notesText}>
@@ -562,12 +686,15 @@ export default function HistoryScreen() {
             <View style={styles.waveformContainer}>
               <View style={styles.waveformBars}>
                 {[...Array(20)].map((_, i) => (
-                  <View 
-                    key={i} 
+                  <View
+                    key={i}
                     style={[
-                      styles.waveformBar, 
-                      { height: Math.random() * 30 + 10, opacity: isPlaying ? 1 : 0.5 }
-                    ]} 
+                      styles.waveformBar,
+                      {
+                        height: Math.random() * 30 + 10,
+                        opacity: isPlaying ? 1 : 0.5,
+                      },
+                    ]}
                   />
                 ))}
               </View>
@@ -575,21 +702,38 @@ export default function HistoryScreen() {
 
             <View style={styles.actionButtons}>
               <TouchableOpacity
-                style={[styles.playButton, isPlaying && styles.playButtonActive]}
-                onPress={() => handlePlay(item.audioURL, item.recordingId, item.filePath)}
+                style={[
+                  styles.playButton,
+                  isPlaying && styles.playButtonActive,
+                ]}
+                onPress={() =>
+                  handlePlay(
+                    item.audioURL,
+                    item.recordingId,
+                    item.filePath
+                  )
+                }
               >
-                <Ionicons 
-                  name={isPlaying ? "pause" : "play"} 
-                  size={18} 
-                  color={isPlaying ? "#2d3e34" : "#fff"} 
+                <Ionicons
+                  name={isPlaying ? 'pause' : 'play'}
+                  size={18}
+                  color={isPlaying ? '#2d3e34' : '#fff'}
                 />
-                <Text style={[styles.playButtonText, isPlaying && styles.playButtonTextActive]}>
+                <Text
+                  style={[
+                    styles.playButtonText,
+                    isPlaying && styles.playButtonTextActive,
+                  ]}
+                >
                   {isPlaying ? 'pause' : 'play'}
                 </Text>
               </TouchableOpacity>
               {isEditing ? (
                 <TouchableOpacity
-                  style={[styles.resubmitButton, isSaving && styles.buttonDisabled]}
+                  style={[
+                    styles.resubmitButton,
+                    isSaving && styles.buttonDisabled,
+                  ]}
                   onPress={() => handleResubmit(item.recordingId)}
                   disabled={isSaving}
                 >
@@ -602,14 +746,20 @@ export default function HistoryScreen() {
                   style={styles.resubmitButton}
                   onPress={() => handleEdit(item)}
                 >
-                  <Text style={styles.resubmitButtonText}>edit to resubmit</Text>
+                  <Text style={styles.resubmitButtonText}>
+                    edit to resubmit
+                  </Text>
                 </TouchableOpacity>
               )}
             </View>
 
             <View style={styles.uploaderInfo}>
-              <Text style={styles.uploaderName}>{item.submitterName}</Text>
-              <Text style={styles.uploadStatus}>{getStatusLabel(item.status)}</Text>
+              <Text style={styles.uploaderName}>
+                {item.submitterName}
+              </Text>
+              <Text style={styles.uploadStatus}>
+                {getStatusLabel(item.status)}
+              </Text>
             </View>
           </View>
         )}
@@ -620,31 +770,49 @@ export default function HistoryScreen() {
   if (loading) {
     return (
       <View style={styles.container}>
-        <ActivityIndicator size="large" color="#b8e986" style={{ marginTop: 100 }} />
+        <ActivityIndicator
+          size="large"
+          color="#b8e986"
+          style={{ marginTop: 100 }}
+        />
       </View>
     );
   }
 
   return (
     <View style={styles.container}>
-      <NavigationMenu isVisible={menuVisible} onClose={() => setMenuVisible(false)} />
+      <NavigationMenu
+        isVisible={menuVisible}
+        onClose={() => setMenuVisible(false)}
+      />
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.push(homeScreen as any)} style={styles.backButton}>
+        <TouchableOpacity
+          onPress={() => router.push(homeScreen as any)}
+          style={styles.backButton}
+        >
           <Ionicons name="arrow-back" size={28} color="#fff" />
         </TouchableOpacity>
         <View>
           <Text style={styles.headerTitle}>History</Text>
           <View style={styles.titleUnderline} />
         </View>
-        <TouchableOpacity style={styles.menuButton} onPress={() => setMenuVisible(true)}>
+        <TouchableOpacity
+          style={styles.menuButton}
+          onPress={() => setMenuVisible(true)}
+        >
           <Ionicons name="menu" size={32} color="#fff" />
         </TouchableOpacity>
       </View>
 
       {/* Search Bar */}
       <View style={styles.searchContainer}>
-        <Ionicons name="search" size={24} color="#fff" style={styles.searchIcon} />
+        <Ionicons
+          name="search"
+          size={24}
+          color="#fff"
+          style={styles.searchIcon}
+        />
         <TextInput
           style={styles.searchInput}
           value={searchQuery}

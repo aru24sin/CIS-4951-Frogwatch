@@ -555,7 +555,7 @@ export default function MapHistoryScreen() {
           <Ionicons name="arrow-back" size={28} color="#333" />
         </TouchableOpacity>
 
-        <Text style={styles.headerTitle}>Map</Text>
+        <Text style={styles.headerTitle}></Text>
 
         <TouchableOpacity onPress={() => setMenuVisible(true)} style={styles.menuButton}>
           <Ionicons name="menu" size={28} color="#333" />
@@ -575,7 +575,7 @@ export default function MapHistoryScreen() {
             onPress={() => handleMarkerPress(rec)}
           >
             <View style={styles.customMarker}>
-              <Ionicons name="location" size={40} color="#ccff01ff" />
+              <Ionicons name="location" size={40} color="#ff1a01ff" />
             </View>
           </Marker>
         ))}

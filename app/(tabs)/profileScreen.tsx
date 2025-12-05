@@ -65,7 +65,7 @@ export default function ProfileScreen() {
   // Edit state
   const [editFirstName, setEditFirstName] = useState('');
   const [editLastName, setEditLastName] = useState('');
-  const [editUsername, setEditUsername] = useState('');
+  const [editUsername, setEditUsername] = useState(''); // kept for compatibility, but no longer shown
   const [editPassword, setEditPassword] = useState('');
   const [editPhone, setEditPhone] = useState('');
   const [editBio, setEditBio] = useState('');
@@ -196,198 +196,196 @@ export default function ProfileScreen() {
           </TouchableOpacity>
         </View>
 
-        <ScrollView style={styles.content} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* Profile Picture */}
-        <View style={styles.profilePictureContainer}>
-          <View style={styles.profilePicture}>
-            <Ionicons name="person" size={80} color="#d4ff00" />
+        <ScrollView
+          style={styles.content}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Profile Picture */}
+          <View style={styles.profilePictureContainer}>
+            <View style={styles.profilePicture}>
+              <Ionicons name="person" size={80} color="#d4ff00" />
+            </View>
+            <View style={[styles.roleBadge, { backgroundColor: getRoleBadgeColor() }]}>
+              <Text style={styles.roleText}>{getRoleLabel()}</Text>
+            </View>
           </View>
-          <View style={[styles.roleBadge, { backgroundColor: getRoleBadgeColor() }]}>
-            <Text style={styles.roleText}>{getRoleLabel()}</Text>
+
+          {/* Profile Card */}
+          <View style={styles.profileCard}>
+            {editMode ? (
+              // Edit Mode
+              <>
+                <View style={styles.inputGroup}>
+                  <Text style={styles.inputLabel}>First Name</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={editFirstName}
+                    onChangeText={setEditFirstName}
+                    placeholderTextColor="#999"
+                  />
+                </View>
+
+                <View style={styles.inputGroup}>
+                  <Text style={styles.inputLabel}>Last Name</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={editLastName}
+                    onChangeText={setEditLastName}
+                    placeholderTextColor="#999"
+                  />
+                </View>
+
+                {/* Username label & input removed */}
+
+                <View style={styles.inputGroup}>
+                  {/* Email field header renamed to Username */}
+                  <Text style={styles.inputLabel}>Username</Text>
+                  <TextInput
+                    style={[styles.input, styles.disabledInput]}
+                    value={userData?.email}
+                    editable={false}
+                    placeholderTextColor="#999"
+                  />
+                </View>
+
+                <View style={styles.inputGroup}>
+                  <Text style={styles.inputLabel}>Phone Number</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={editPhone}
+                    onChangeText={setEditPhone}
+                    placeholder="(123) 456-7890"
+                    placeholderTextColor="#999"
+                    keyboardType="phone-pad"
+                  />
+                </View>
+
+                <View style={styles.inputGroup}>
+                  <Text style={styles.inputLabel}>Location</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={editLocation}
+                    onChangeText={setEditLocation}
+                    placeholder="City, State"
+                    placeholderTextColor="#999"
+                  />
+                </View>
+
+                <View style={styles.inputGroup}>
+                  <Text style={styles.inputLabel}>Bio</Text>
+                  <TextInput
+                    style={[styles.input, styles.textArea]}
+                    value={editBio}
+                    onChangeText={setEditBio}
+                    placeholder="Tell us about yourself..."
+                    placeholderTextColor="#999"
+                    multiline
+                  />
+                </View>
+
+                <View style={styles.inputGroup}>
+                  <Text style={styles.inputLabel}>New Password (optional)</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={editPassword}
+                    onChangeText={setEditPassword}
+                    placeholder="Enter new password (6+ characters)"
+                    placeholderTextColor="#999"
+                    secureTextEntry
+                  />
+                </View>
+
+                <View style={styles.inputGroup}>
+                  <Text style={styles.inputLabel}>Date of Birth</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={editDOB}
+                    onChangeText={setEditDOB}
+                    placeholder="MM/DD/YY"
+                    placeholderTextColor="#999"
+                  />
+                </View>
+
+                <View style={styles.editActions}>
+                  <TouchableOpacity
+                    style={styles.cancelButton}
+                    onPress={() => {
+                      setEditMode(false);
+                      if (userData) {
+                        setEditFirstName(userData.firstName);
+                        setEditLastName(userData.lastName);
+                        setEditUsername(userData.username);
+                        setEditPassword('');
+                        setEditDOB(userData.dateOfBirth);
+                        setEditPhone(userData.phoneNumber || '');
+                        setEditBio(userData.bio || '');
+                        setEditLocation(userData.location || '');
+                      }
+                    }}
+                  >
+                    <Text style={styles.cancelButtonText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.saveButton} onPress={handleSaveChanges}>
+                    <Text style={styles.saveButtonText}>Save</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            ) : (
+              // View Mode
+              <>
+                <View style={styles.infoRow}>
+                  <Text style={styles.infoLabel}>Name</Text>
+                  <Text style={styles.infoValue}>
+                    {userData?.firstName} {userData?.lastName}
+                  </Text>
+                </View>
+
+                {/* Username row removed; email row becomes Username */}
+                <View style={styles.infoRow}>
+                  <Text style={styles.infoLabel}>Username</Text>
+                  <Text style={styles.infoValue}>{userData?.email}</Text>
+                </View>
+
+                {userData?.phoneNumber && (
+                  <View style={styles.infoRow}>
+                    <Text style={styles.infoLabel}>Phone</Text>
+                    <Text style={styles.infoValue}>{userData.phoneNumber}</Text>
+                  </View>
+                )}
+
+                {userData?.location && (
+                  <View style={styles.infoRow}>
+                    <Text style={styles.infoLabel}>Location</Text>
+                    <Text style={styles.infoValue}>{userData.location}</Text>
+                  </View>
+                )}
+
+                {userData?.bio && (
+                  <View style={styles.infoRow}>
+                    <Text style={styles.infoLabel}>Bio</Text>
+                    <Text style={styles.infoValue}>{userData.bio}</Text>
+                  </View>
+                )}
+
+                <View style={styles.infoRow}>
+                  <Text style={styles.infoLabel}>Date of Birth</Text>
+                  <Text style={styles.infoValue}>{userData?.dateOfBirth}</Text>
+                </View>
+
+                <TouchableOpacity style={styles.editButton} onPress={() => setEditMode(true)}>
+                  <Ionicons
+                    name="create-outline"
+                    size={20}
+                    color="#2d3e34"
+                    style={{ marginRight: 8 }}
+                  />
+                  <Text style={styles.editButtonText}>Edit Profile</Text>
+                </TouchableOpacity>
+              </>
+            )}
           </View>
-        </View>
-
-        {/* Profile Card */}
-        <View style={styles.profileCard}>
-          {editMode ? (
-            // Edit Mode
-            <>
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>First Name</Text>
-                <TextInput
-                  style={styles.input}
-                  value={editFirstName}
-                  onChangeText={setEditFirstName}
-                  placeholderTextColor="#999"
-                />
-              </View>
-
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Last Name</Text>
-                <TextInput
-                  style={styles.input}
-                  value={editLastName}
-                  onChangeText={setEditLastName}
-                  placeholderTextColor="#999"
-                />
-              </View>
-
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Username</Text>
-                <TextInput
-                  style={styles.input}
-                  value={editUsername}
-                  onChangeText={setEditUsername}
-                  placeholderTextColor="#999"
-                />
-              </View>
-
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Email</Text>
-                <TextInput
-                  style={[styles.input, styles.disabledInput]}
-                  value={userData?.email}
-                  editable={false}
-                  placeholderTextColor="#999"
-                />
-              </View>
-
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Phone Number</Text>
-                <TextInput
-                  style={styles.input}
-                  value={editPhone}
-                  onChangeText={setEditPhone}
-                  placeholder="(123) 456-7890"
-                  placeholderTextColor="#999"
-                  keyboardType="phone-pad"
-                />
-              </View>
-
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Location</Text>
-                <TextInput
-                  style={styles.input}
-                  value={editLocation}
-                  onChangeText={setEditLocation}
-                  placeholder="City, State"
-                  placeholderTextColor="#999"
-                />
-              </View>
-
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Bio</Text>
-                <TextInput
-                  style={[styles.input, styles.textArea]}
-                  value={editBio}
-                  onChangeText={setEditBio}
-                  placeholder="Tell us about yourself..."
-                  placeholderTextColor="#999"
-                  multiline
-                />
-              </View>
-
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>New Password (optional)</Text>
-                <TextInput
-                  style={styles.input}
-                  value={editPassword}
-                  onChangeText={setEditPassword}
-                  placeholder="Enter new password (6+ characters)"
-                  placeholderTextColor="#999"
-                  secureTextEntry
-                />
-              </View>
-
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Date of Birth</Text>
-                <TextInput
-                  style={styles.input}
-                  value={editDOB}
-                  onChangeText={setEditDOB}
-                  placeholder="MM/DD/YY"
-                  placeholderTextColor="#999"
-                />
-              </View>
-
-              <View style={styles.editActions}>
-                <TouchableOpacity
-                  style={styles.cancelButton}
-                  onPress={() => {
-                    setEditMode(false);
-                    if (userData) {
-                      setEditFirstName(userData.firstName);
-                      setEditLastName(userData.lastName);
-                      setEditUsername(userData.username);
-                      setEditPassword('');
-                      setEditDOB(userData.dateOfBirth);
-                      setEditPhone(userData.phoneNumber || '');
-                      setEditBio(userData.bio || '');
-                      setEditLocation(userData.location || '');
-                    }
-                  }}
-                >
-                  <Text style={styles.cancelButtonText}>Cancel</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.saveButton} onPress={handleSaveChanges}>
-                  <Text style={styles.saveButtonText}>Save</Text>
-                </TouchableOpacity>
-              </View>
-            </>
-          ) : (
-            // View Mode
-            <>
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Name</Text>
-                <Text style={styles.infoValue}>
-                  {userData?.firstName} {userData?.lastName}
-                </Text>
-              </View>
-
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Username</Text>
-                <Text style={styles.infoValue}>{userData?.username}</Text>
-              </View>
-
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Email</Text>
-                <Text style={styles.infoValue}>{userData?.email}</Text>
-              </View>
-
-              {userData?.phoneNumber && (
-                <View style={styles.infoRow}>
-                  <Text style={styles.infoLabel}>Phone</Text>
-                  <Text style={styles.infoValue}>{userData.phoneNumber}</Text>
-                </View>
-              )}
-
-              {userData?.location && (
-                <View style={styles.infoRow}>
-                  <Text style={styles.infoLabel}>Location</Text>
-                  <Text style={styles.infoValue}>{userData.location}</Text>
-                </View>
-              )}
-
-              {userData?.bio && (
-                <View style={styles.infoRow}>
-                  <Text style={styles.infoLabel}>Bio</Text>
-                  <Text style={styles.infoValue}>{userData.bio}</Text>
-                </View>
-              )}
-
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Date of Birth</Text>
-                <Text style={styles.infoValue}>{userData?.dateOfBirth}</Text>
-              </View>
-
-              <TouchableOpacity style={styles.editButton} onPress={() => setEditMode(true)}>
-                <Ionicons name="create-outline" size={20} color="#2d3e34" style={{ marginRight: 8 }} />
-                <Text style={styles.editButtonText}>Edit Profile</Text>
-              </TouchableOpacity>
-            </>
-          )}
-        </View>
-      </ScrollView>
+        </ScrollView>
       </View>
     </SafeAreaView>
   );

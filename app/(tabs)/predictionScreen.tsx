@@ -136,7 +136,7 @@ export default function PredictionScreen() {
   const lon = Number(params.lon ?? NaN);
 
   const [sound, setSound] = useState<Audio.Sound | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(false); // model loading
   const [apiError, setApiError] = useState<string | null>(null);
   const [predictedSpecies, setPredictedSpecies] = useState('Bullfrog');
   const [notes, setNotes] = useState('');
@@ -150,6 +150,8 @@ export default function PredictionScreen() {
   const [volunteerConfidence, setVolunteerConfidence] = useState<
     '' | 'high' | 'medium' | 'low'
   >('');
+  const [submitting, setSubmitting] = useState(false);      // NEW: submitting flag
+  const [hasSubmitted, setHasSubmitted] = useState(false);  // NEW: prevent duplicates
   const mountedRef = useRef(true);
 
   // Determine the correct home screen on mount
@@ -257,6 +259,15 @@ export default function PredictionScreen() {
   };
 
   const handleSubmit = async () => {
+    // Block second / repeated submissions
+    if (hasSubmitted) {
+      Alert.alert('Recording already submitted', 'This recording has already been submitted.');
+      return;
+    }
+
+    // Ignore double-tap while current submit is still in progress
+    if (submitting) return;
+
     if (!volunteerConfidence) {
       Alert.alert(
         'Missing Confidence Level',
@@ -271,7 +282,7 @@ export default function PredictionScreen() {
     }
 
     try {
-      setLoading(true);
+      setSubmitting(true);
 
       await ensureSignedIn();
       const user = auth.currentUser!;
@@ -395,6 +406,7 @@ export default function PredictionScreen() {
             reviewedAt: serverTimestamp(),
           },
         });
+        setHasSubmitted(true);
         Alert.alert(
           'Submitted',
           'Your recording was saved and approved as an expert submission.'
@@ -404,6 +416,7 @@ export default function PredictionScreen() {
           ...baseDoc,
           status: 'needs_review',
         });
+        setHasSubmitted(true);
         Alert.alert('Submitted', 'Your recording was saved');
       }
     } catch (err: any) {
@@ -414,7 +427,7 @@ export default function PredictionScreen() {
       });
       Alert.alert('Submit failed', err?.message ?? String(err));
     } finally {
-      setLoading(false);
+      setSubmitting(false);
     }
   };
 
@@ -654,10 +667,17 @@ export default function PredictionScreen() {
 
           {/* Submit Button */}
           <TouchableOpacity
-            style={[styles.cardButton, styles.submitButton]}
+            style={[
+              styles.cardButton,
+              styles.submitButton,
+              (submitting || hasSubmitted) && { opacity: 0.6 },
+            ]}
             onPress={handleSubmit}
+            disabled={submitting || hasSubmitted}
           >
-            <Text style={styles.submitButtonText}>Submit for Approval</Text>
+            <Text style={styles.submitButtonText}>
+              {hasSubmitted ? 'Already Submitted' : 'Submit for Approval'}
+            </Text>
           </TouchableOpacity>
         </View>
 
